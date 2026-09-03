@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MRD-SWARM // High-Fidelity Tactical Combat Swarm Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <!-- 3D WebGL Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- Glassmorphism Tactical HUD Overlay -->
+  <div id="hud-root">
+    
+    <!-- Top Status Header (Fixed Sleek Bar) -->
+    <header class="hud-panel glass header-bar" id="header-panel">
+      <div class="brand-group">
+        <div class="pulse-indicator live" id="connection-indicator"></div>
+        <div class="brand-text">
+          <h1>MRD-SWARM // AEROSPACE TACTICAL STRIKE</h1>
+          <span class="sub-brand">RIGOROUS SE(3) MULTI-AGENT DYNAMICS (MuJoCo 3.x)</span>
+        </div>
+      </div>
+
+      <div class="metrics-cluster">
+        <div class="metric-item">
+          <span class="m-label">MISSION TIME</span>
+          <span class="m-val" id="val-time">00:00.00</span>
+        </div>
+        <div class="metric-item">
+          <span class="m-label">3D UNCERTAINTY</span>
+          <span class="m-val accent-cyan" id="val-uncertainty">100.0%</span>
+        </div>
+        <div class="metric-item">
+          <span class="m-label">RF MESH LINKS</span>
+          <span class="m-val accent-green" id="val-links">0</span>
+        </div>
+        <div class="metric-item">
+          <span class="m-label">EW JAMMING</span>
+          <span class="m-val accent-amber" id="val-ew-status">INACTIVE</span>
+        </div>
+        <div class="header-actions">
+          <button class="top-action-btn" id="export-csv-btn" title="Download 100Hz Black Box Flight Log">📥 EXPORT CSV</button>
+          <button class="top-action-btn" id="hud-toggle-btn" title="Toggle Clean Cinematic View">👁️ HIDE HUD</button>
+          <button class="top-action-btn" id="sfx-toggle">🔊 SFX: ON</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Floating Window 1: Fleet Status & Telemetry (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-fleet" style="top: 80px; left: 16px; width: 320px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="win-icon">🛸</span>
+          <span>FLEET TELEMETRY</span>
+        </div>
+        <div class="win-controls">
+          <button class="win-ctrl-btn min-btn" data-target="win-fleet" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        <div class="drone-cards-container" id="drone-cards-list">
+          <!-- Injected via JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Window 2: Interactive Combat Action Deck (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-actions" style="top: 80px; left: 350px; width: 380px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="win-icon">⚡</span>
+          <span>TACTICAL ACTION DECK</span>
+        </div>
+        <div class="win-controls">
+          <button class="win-ctrl-btn min-btn" data-target="win-actions" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        <div class="action-buttons-grid">
+          <button class="tactical-act-btn btn-jam" id="btn-jam-trigger">
+            <span class="btn-icon">🚨</span>
+            <div class="btn-info">
+              <b>TOGGLE EW JAMMING</b>
+              <small>Sector 2 RF degradation</small>
+            </div>
+          </button>
+          <button class="tactical-act-btn btn-smoke" id="btn-smoke-trigger">
+            <span class="btn-icon">💨</span>
+            <div class="btn-info">
+              <b>DEPLOY SMOKE SCREEN</b>
+              <small>Target pops aerosol</small>
+            </div>
+          </button>
+          <button class="tactical-act-btn btn-pincer" id="btn-pincer-trigger">
+            <span class="btn-icon">⚡</span>
+            <div class="btn-info">
+              <b>EXECUTE PINCER AMBUSH</b>
+              <small>Multi-drone lead cutoff</small>
+            </div>
+          </button>
+          <button class="tactical-act-btn btn-rtb" id="btn-rtb-trigger">
+            <span class="btn-icon">🔋</span>
+            <div class="btn-info">
+              <b>EMERGENCY HELIPAD RTB</b>
+              <small>D1 recover to pad</small>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Window 6: DeepSeek AI Commander & Vision Recon (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-ai-commander" style="top: 80px; left: 745px; width: 440px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="win-icon">🤖</span>
+          <span>DEEPSEEK AI COMMANDER</span>
+          <span class="ai-model-pill" id="ai-model-badge">deepseek-v4-flash</span>
+        </div>
+        <div class="win-controls">
+          <span class="ai-latency-pill" id="ai-latency-badge">⚡ 0.0s</span>
+          <button class="win-ctrl-btn min-btn" data-target="win-ai-commander" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        
+        <!-- Live Radio Broadcast Alert -->
+        <div class="ai-radio-card">
+          <div class="ai-radio-header">
+            <span class="radio-beacon"></span>
+            <span class="radio-title">TACTICAL RADIO BROADCAST (VOICE COMM)</span>
+            <span class="posture-pill" id="ai-posture-badge">COORDINATED_SWEEP</span>
+          </div>
+          <div class="ai-radio-text" id="ai-radio-msg">
+            "Falcon-Lead to Swarm: Initializing urban sweep. Over."
+          </div>
+        </div>
+
+        <!-- Vision Recon Intelligence -->
+        <div class="ai-vision-card" id="ai-vision-section">
+          <div class="vision-card-header">
+            <div class="vision-title">
+              <span>📸 RECON INTEL // DEEPSEEK-VISION</span>
+              <span class="threat-pill threat-elevated" id="vision-threat-badge">ELEVATED</span>
+            </div>
+            <button class="action-btn-small" id="btn-force-vision">SCAN POV</button>
+          </div>
+          <div class="vision-content-row">
+            <div class="vision-thumb-wrap">
+              <img id="vision-thumb-img" src="" alt="Drone Camera Snap" class="vision-thumb" style="display:none;">
+              <div class="vision-thumb-placeholder" id="vision-thumb-placeholder">AWAITING FEED</div>
+              <div class="vision-thumb-overlay" id="vision-thumb-label">D1 EO/IR</div>
+            </div>
+            <div class="vision-intel-details">
+              <div class="intel-line"><b>TARGET:</b> <span id="vision-target-type">HIGH_VALUE_VEHICLE</span></div>
+              <div class="intel-line"><b>AEROSOL:</b> <span id="vision-smoke-status">NONE</span></div>
+              <div class="intel-desc" id="vision-desc">Optical scan active across urban sector.</div>
+              <div class="intel-rec" id="vision-rec"><b>REC:</b> <span id="vision-rec-text">Maintain pursuit.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chain-of-Thought Military Reasoning Stream -->
+        <div class="terminal-container" style="margin-top: 8px; height: 110px;">
+          <div class="terminal-title">
+            <span>🧠 DEEPSEEK REASONING (CoT STREAM)</span>
+            <span class="dot-pulse" style="background-color: var(--purple-neon);"></span>
+          </div>
+          <div class="terminal-logs cot-stream" id="ai-cot-logs">
+            <div class="log-row info">DeepSeek AI Cognitive Core online. Analyzing battlefield dynamics...</div>
+          </div>
+        </div>
+
+        <!-- Tactical Battle Doctrine Selector -->
+        <div class="doctrine-selector-bar">
+          <span class="doctrine-label">DOCTRINE:</span>
+          <button class="doctrine-btn active" data-doctrine="DEEPSEEK_ADAPTIVE" id="doc-btn-adaptive">🤖 AI ADAPTIVE</button>
+          <button class="doctrine-btn" data-doctrine="AGGRESSIVE_PINCER" id="doc-btn-pincer">⚡ PINCER</button>
+          <button class="doctrine-btn" data-doctrine="WOLFPACK_CONTAINMENT" id="doc-btn-wolfpack">🐺 WOLFPACK</button>
+          <button class="doctrine-btn" data-doctrine="STEALTH_SHADOW" id="doc-btn-stealth">👁️ STEALTH</button>
+        </div>
+
+        <!-- Human-in-the-Loop Operator Uplink -->
+        <div class="operator-uplink-wrap">
+          <div class="quick-chips-row">
+            <button class="chip-btn" data-cmd="Commander, execute aggressive pincer ambush on HVT-0!">⚡ PINCER HVT-0</button>
+            <button class="chip-btn" data-cmd="Commander, prioritize HVT-1 escaping east!">🎯 PRIORITIZE HVT-1</button>
+            <button class="chip-btn" data-cmd="D2 switch to thermal FLIR and penetrate smoke screen.">🔥 THERMAL FLIR</button>
+            <button class="chip-btn" data-cmd="Comms relay D3 climb to 14m to clear EW jamming.">📡 RELAY CLIMB</button>
+          </div>
+          <form id="operator-cmd-form" class="operator-input-row" onsubmit="return false;">
+            <input type="text" id="operator-cmd-input" class="operator-input" placeholder="Type direct order to AI Commander (e.g. 'Pincer HVT-0')..." autocomplete="off">
+            <button type="submit" class="operator-send-btn" id="btn-operator-send">TRANSMIT</button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Floating Window 3: Live Onboard FPV Camera POV (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-fpv" style="bottom: 85px; left: 350px; width: 400px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="live-rec-dot"></span>
+          <span id="pip-cam-label">LIVE ONBOARD POV // D1</span>
+        </div>
+        <div class="win-controls">
+          <div class="spectrum-controls">
+            <button class="spec-btn active" data-spec="rgb">RGB</button>
+            <button class="spec-btn" data-spec="nvg">NVG</button>
+            <button class="spec-btn" data-spec="flir">FLIR</button>
+          </div>
+          <div class="pip-controls">
+            <button class="pip-btn" data-drone="0">D0</button>
+            <button class="pip-btn active" data-drone="1">D1</button>
+            <button class="pip-btn" data-drone="2">D2</button>
+            <button class="pip-btn" data-drone="3">D3</button>
+          </div>
+          <button class="win-ctrl-btn min-btn" data-target="win-fpv" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        <div class="fpv-viewport-wrapper" id="fpv-wrapper">
+          <canvas id="pip-canvas" width="396" height="210"></canvas>
+          <div class="fpv-hud-crosshairs">
+            <div class="crosshair-center"></div>
+            <div class="laser-designation-badge" id="laser-badge">⚡ LASER LOCK: ACTIVE</div>
+            <div class="fpv-reticle-status" id="pip-reticle-status">OPTICAL SCANNING</div>
+            <div class="fpv-telemetry-corner-tl" id="pip-telemetry-tl">ALT: 3.8m | HDG: 042°</div>
+            <div class="fpv-telemetry-corner-br" id="pip-telemetry-br">RNG: 4.2m | SPD: 12.5m/s</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Window 4: Targets Radar & AI Command Stream (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-targets" style="top: 80px; right: 16px; width: 330px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="win-icon">🎯</span>
+          <span>TARGETS & AI STREAM</span>
+        </div>
+        <div class="win-controls">
+          <button class="win-ctrl-btn min-btn" data-target="win-targets" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        <div class="targets-container" id="targets-list">
+          <!-- Injected via JavaScript -->
+        </div>
+
+        <div class="terminal-container" style="margin-top: 10px; height: 160px;">
+          <div class="terminal-title">
+            <span>💻 AI COGNITIVE TRACE</span>
+            <span class="dot-pulse"></span>
+          </div>
+          <div class="terminal-logs" id="terminal-logs-body">
+            <div class="log-row info">[SYS] Aerospace ECS Simulation Loop Initialized</div>
+            <div class="log-row success">[SYS] 3D Voxel Uncertainty Field & Laser Ready</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Window 5: Live Mission Evaluation & Scientific Metrics (Draggable & Minimizable) -->
+    <div class="hud-window glass" id="win-eval" style="bottom: 85px; right: 16px; width: 330px;">
+      <div class="win-header drag-handle">
+        <div class="win-title">
+          <span class="win-icon">📈</span>
+          <span>AEROSPACE METRICS & EVAL</span>
+        </div>
+        <div class="win-controls">
+          <button class="win-ctrl-btn min-btn" data-target="win-eval" title="Minimize Window">_</button>
+        </div>
+      </div>
+      <div class="win-body">
+        <div class="eval-grid">
+          <div class="eval-card">
+            <span class="eval-label">SE(3) POS RMSE</span>
+            <span class="eval-val accent-cyan" id="eval-rmse-pos">0.00 m</span>
+          </div>
+          <div class="eval-card">
+            <span class="eval-label">VELOCITY RMSE</span>
+            <span class="eval-val accent-cyan" id="eval-rmse-vel">0.00 m/s</span>
+          </div>
+          <div class="eval-card">
+            <span class="eval-label">FIEDLER VAL &lambda;<sub>2</sub>(L)</span>
+            <span class="eval-val accent-green" id="eval-lambda-2">0.00</span>
+          </div>
+          <div class="eval-card">
+            <span class="eval-label">TARGET TRACK RATIO</span>
+            <span class="eval-val accent-amber" id="eval-track-ratio">0.0%</span>
+          </div>
+        </div>
+        <div class="eval-footer-info">
+          <span>BLACK BOX: <b>100 Hz SYNCHRONOUS</b></span>
+          <span style="color: var(--green-neon);">LOGGING ACTIVE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Dynamic Camera Selector Dock (Fixed Sleek Bar) -->
+    <nav class="hud-panel glass camera-dock" id="camera-dock-panel">
+      <span class="dock-label">MAIN CAMERA:</span>
+      <button class="cam-btn active" data-cam="orbit">🎥 CINEMATIC ORBIT</button>
+      <button class="cam-btn" data-cam="chase1">⚡ CHASE DRONE 1 (INTERCEPT)</button>
+      <button class="cam-btn" data-cam="chase2">🔥 CHASE DRONE 2 (FLANKER)</button>
+      <button class="cam-btn" data-cam="fpv1">🥽 DRONE 1 COCKPIT FPV</button>
+      <button class="cam-btn" data-cam="tactical">🗺️ TACTICAL MAP (TOP-DOWN)</button>
+      <button class="cam-btn" id="reset-layout-btn" style="margin-left: 12px; color: var(--cyan-bright);" title="Reset HUD Window Positions">🔄 RESET HUD</button>
+    </nav>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

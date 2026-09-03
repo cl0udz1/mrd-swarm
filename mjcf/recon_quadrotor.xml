@@ -1,0 +1,214 @@
+<!--
+  recon_quadrotor.xml — MuJoCo MJCF for a reconnaissance nano-quadrotor
+  Mass: ~0.35 kg  |  Arm length: 0.12 m  |  X-configuration
+  Physical constants derived from Crazyflie 2.0-class platforms
+-->
+<mujoco model="recon_quadrotor">
+  <compiler angle="radian" coordinate="local" meshdir="." autolimits="true"/>
+
+  <option timestep="0.001" integrator="implicitfast" gravity="0 0 -9.81"
+          viscosity="1.8e-5" density="1.225" wind="0 0 0"
+          cone="elliptic" impratio="10"/>
+
+  <visual>
+    <global offwidth="1920" offheight="1080"/>
+  </visual>
+
+  <default>
+    <joint armature="0.0001" damping="0.001"/>
+    <geom condim="4" friction="0.8 0.01 0.01" margin="0.001"/>
+    <motor ctrllimited="true" ctrlrange="0 1"/>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="1"/>
+    </default>
+    <default class="collision">
+      <geom group="0"/>
+    </default>
+    <default class="motor">
+      <general ctrllimited="true" ctrlrange="0 1"/>
+    </default>
+  </default>
+
+  <asset>
+    <texture name="chassis_tex" type="cube" builtin="flat" rgb1="0.15 0.15 0.18"
+             rgb2="0.10 0.10 0.12" width="64" height="64"/>
+    <material name="chassis_mat" texture="chassis_tex" specular="0.3" shininess="0.4"
+              rgba="0.15 0.15 0.18 1"/>
+    <material name="arm_mat" rgba="0.25 0.25 0.30 1" specular="0.2"/>
+    <material name="prop_mat" rgba="0.3 0.3 0.35 0.6"/>
+    <material name="led_green" rgba="0.1 0.9 0.1 1" emission="0.5"/>
+    <material name="led_red" rgba="0.9 0.1 0.1 1" emission="0.5"/>
+    <material name="sensor_mat" rgba="0.05 0.05 0.08 1"/>
+  </asset>
+
+  <worldbody>
+    <!-- ===================== MAIN BODY ===================== -->
+    <body name="base_link" pos="0 0 0.05">
+      <freejoint name="root"/>
+
+      <!-- Chassis: ellipsoidal fuselage -->
+      <geom name="chassis" type="capsule" size="0.045 0.035" fromto="-0.03 0 0 0.03 0 0"
+            mass="0.12" material="chassis_mat" class="collision"/>
+      <geom name="chassis_visual" type="capsule" size="0.046 0.036"
+            fromto="-0.03 0 0 0.03 0 0" material="chassis_mat" class="visual"/>
+
+      <!-- Inertia: approximate as uniform cuboid + arms -->
+      <!-- Total mass 0.35 kg, Ixx=Iyy≈0.0011, Izz≈0.0021 kg·m² -->
+      <inertial pos="0 0 0" mass="0.35"
+                fullinertia="0.0011 0.0011 0.0021 0 0 0"/>
+
+      <!-- ===================== ARM 0 (Front-Right, +X+Y) ===================== -->
+      <body name="arm_0" pos="0 0 0">
+        <geom name="arm_0_geom" type="capsule" size="0.006 0.085"
+              fromto="0 0 0 0.085 0.085 0" mass="0.015" material="arm_mat"/>
+        <!-- Motor mount -->
+        <body name="motor_0" pos="0.085 0.085 0.01">
+          <geom name="motor_0_geom" type="cylinder" size="0.012 0.008"
+                mass="0.012" material="sensor_mat"/>
+          <!-- Rotor disc (bidirectional thrust) -->
+          <geom name="prop_0" type="cylinder" size="0.06 0.001"
+                mass="0.003" material="prop_mat" class="visual"/>
+          <!-- Thrust site: force applied along +Z of this body -->
+          <site name="prop_site_0" pos="0 0 0.01" size="0.001"/>
+          <!-- Rotor drag torque site -->
+          <site name="rotor_torque_site_0" pos="0 0 0"/>
+        </body>
+      </body>
+
+      <!-- ===================== ARM 1 (Front-Left, +X-Y) ===================== -->
+      <body name="arm_1" pos="0 0 0">
+        <geom name="arm_1_geom" type="capsule" size="0.006 0.085"
+              fromto="0 0 0 0.085 -0.085 0" mass="0.015" material="arm_mat"/>
+        <body name="motor_1" pos="0.085 -0.085 0.01">
+          <geom name="motor_1_geom" type="cylinder" size="0.012 0.008"
+                mass="0.012" material="sensor_mat"/>
+          <geom name="prop_1" type="cylinder" size="0.06 0.001"
+                mass="0.003" material="prop_mat" class="visual"/>
+          <site name="prop_site_1" pos="0 0 0.01" size="0.001"/>
+          <site name="rotor_torque_site_1" pos="0 0 0"/>
+        </body>
+      </body>
+
+      <!-- ===================== ARM 2 (Rear-Left, -X-Y) ===================== -->
+      <body name="arm_2" pos="0 0 0">
+        <geom name="arm_2_geom" type="capsule" size="0.006 0.085"
+              fromto="0 0 0 -0.085 -0.085 0" mass="0.015" material="arm_mat"/>
+        <body name="motor_2" pos="-0.085 -0.085 0.01">
+          <geom name="motor_2_geom" type="cylinder" size="0.012 0.008"
+                mass="0.012" material="sensor_mat"/>
+          <geom name="prop_2" type="cylinder" size="0.06 0.001"
+                mass="0.003" material="prop_mat" class="visual"/>
+          <site name="prop_site_2" pos="0 0 0.01" size="0.001"/>
+          <site name="rotor_torque_site_2" pos="0 0 0"/>
+        </body>
+      </body>
+
+      <!-- ===================== ARM 3 (Rear-Right, -X+Y) ===================== -->
+      <body name="arm_3" pos="0 0 0">
+        <geom name="arm_3_geom" type="capsule" size="0.006 0.085"
+              fromto="0 0 0 -0.085 0.085 0" mass="0.015" material="arm_mat"/>
+        <body name="motor_3" pos="-0.085 0.085 0.01">
+          <geom name="motor_3_geom" type="cylinder" size="0.012 0.008"
+                mass="0.012" material="sensor_mat"/>
+          <geom name="prop_3" type="cylinder" size="0.06 0.001"
+                mass="0.003" material="prop_mat" class="visual"/>
+          <site name="prop_site_3" pos="0 0 0.01" size="0.001"/>
+          <site name="rotor_torque_site_3" pos="0 0 0"/>
+        </body>
+      </body>
+
+      <!-- ===================== SENSOR SITES ===================== -->
+      <!-- IMU site at center of mass -->
+      <site name="imu_site" pos="0 0 0" size="0.001"/>
+
+      <!-- Downward rangefinder site (altimeter) -->
+      <site name="altimeter_site" pos="0 0 -0.03" size="0.001" zaxis="0 0 -1"/>
+
+      <!-- Forward proximity sensor site -->
+      <site name="prox_fwd_site" pos="0.06 0 0" size="0.001" zaxis="1 0 0"/>
+
+      <!-- Left proximity sensor site -->
+      <site name="prox_left_site" pos="0 0.06 0" size="0.001" zaxis="0 1 0"/>
+
+      <!-- Right proximity sensor site -->
+      <site name="prox_right_site" pos="0 -0.06 0" size="0.001" zaxis="0 -1 0"/>
+
+      <!-- Rear proximity sensor site -->
+      <site name="prox_rear_site" pos="-0.06 0 0" size="0.001" zaxis="-1 0 0"/>
+
+      <!-- Forward-facing reconnaissance camera -->
+      <camera name="recon_camera" pos="0.05 0 0.02" xyaxes="0 -1 0 0 0 1"
+              fovy="70" resolution="640 480"/>
+
+      <!-- Downward-facing camera -->
+      <camera name="downward_camera" pos="0 0 -0.03" xyaxes="1 0 0 0 -1 0"
+              fovy="90" resolution="320 240"/>
+
+      <!-- LED indicators -->
+      <geom name="led_fr" type="sphere" size="0.004" pos="0.085 0.085 0.02"
+            material="led_green" class="visual"/>
+      <geom name="led_fl" type="sphere" size="0.004" pos="0.085 -0.085 0.02"
+            material="led_green" class="visual"/>
+      <geom name="led_rl" type="sphere" size="0.004" pos="-0.085 -0.085 0.02"
+            material="led_red" class="visual"/>
+      <geom name="led_rr" type="sphere" size="0.004" pos="-0.085 0.085 0.02"
+            material="led_red" class="visual"/>
+    </body>
+
+    <!-- ===================== GROUND ===================== -->
+    <geom name="ground" type="plane" size="50 50 0.1" rgba="0.3 0.5 0.3 1"
+          material="chassis_mat"/>
+    <light name="sun" pos="0 0 50" dir="0 0 -1" diffuse="0.8 0.8 0.8"
+           specular="0.3 0.3 0.3" directional="true"/>
+    <light name="fill" pos="-10 10 20" dir="1 -1 -2" diffuse="0.3 0.3 0.35"
+           directional="true"/>
+  </worldbody>
+
+  <!-- ===================== ACTUATORS ===================== -->
+  <!--
+    Motor mapping (X-config, CCW/CW alternating):
+      Motor 0 (FR): CW  → positive thrust, negative yaw torque
+      Motor 1 (FL): CCW → positive thrust, positive yaw torque
+      Motor 2 (RL): CW  → positive thrust, negative yaw torque
+      Motor 3 (RR): CCW → positive thrust, positive yaw torque
+
+    Thrust model: F = k_f * omega^2, ctrl ∈ [0, 1] maps to omega ∈ [0, omega_max]
+    For this model: k_f = 5.3e-5 N/(rad/s)^2, omega_max ≈ 2500 rad/s
+    Max thrust per motor ≈ 5.3e-5 * 2500^2 ≈ 0.33 N
+    Total max thrust ≈ 1.32 N (hover at ~0.35*9.81 ≈ 3.43 N... need higher k_f or lower mass)
+
+    Revised: k_f = 1.5e-4 N/(rad/s)^2, omega_max = 2500 rad/s
+    Max thrust per motor ≈ 1.5e-4 * 2500^2 ≈ 0.9375 N → total 3.75 N (hover margin ~1.08x)
+  -->
+  <!--
+    Actuator gainprm = 1.5 N per unit ctrl.
+    Total mass ≈ 0.47 kg → weight ≈ 4.61 N.
+    Hover ctrl ≈ 4.61 / (4 × 1.5) ≈ 0.77.
+    Max thrust = 4 × 1.5 = 6.0 N (1.3× weight margin).
+  -->
+  <actuator>
+    <general name="thrust_0" site="prop_site_0"
+             gear="0 0 1 0 0 0" gainprm="1.5" ctrllimited="true" ctrlrange="0 1"/>
+    <general name="thrust_1" site="prop_site_1"
+             gear="0 0 1 0 0 0" gainprm="1.5" ctrllimited="true" ctrlrange="0 1"/>
+    <general name="thrust_2" site="prop_site_2"
+             gear="0 0 1 0 0 0" gainprm="1.5" ctrllimited="true" ctrlrange="0 1"/>
+    <general name="thrust_3" site="prop_site_3"
+             gear="0 0 1 0 0 0" gainprm="1.5" ctrllimited="true" ctrlrange="0 1"/>
+  </actuator>
+
+  <!-- ===================== SENSOR DEFINITIONS ===================== -->
+  <sensor>
+    <accelerometer name="sens_acc" site="imu_site"/>
+    <gyro name="sens_gyro" site="imu_site"/>
+    <rangefinder name="sens_alt" site="altimeter_site"/>
+    <rangefinder name="sens_prox_fwd" site="prox_fwd_site"/>
+    <rangefinder name="sens_prox_left" site="prox_left_site"/>
+    <rangefinder name="sens_prox_right" site="prox_right_site"/>
+    <rangefinder name="sens_prox_rear" site="prox_rear_site"/>
+    <!-- Frame quaternion for attitude estimation -->
+    <framequat name="sens_quat" objtype="body" objname="base_link"/>
+    <!-- Angular velocity in world frame -->
+    <gyro name="sens_gyro_world" site="imu_site"/>
+  </sensor>
+</mujoco>

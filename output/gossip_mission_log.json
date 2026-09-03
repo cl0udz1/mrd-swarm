@@ -1,0 +1,58 @@
+{
+  "mission": "MRD-Swarm Decentralized Gossip Reconnaissance",
+  "duration_s": 10.0,
+  "total_steps": 1000,
+  "swarm_size": 4,
+  "target_count": 3,
+  "total_detections": 2167,
+  "detection_rate_pct": 100.0,
+  "gossip_metrics": {
+    "total_messages_sent": 2543,
+    "total_messages_delivered": 7275,
+    "packet_delivery_rate_pct": 286.07943373967754,
+    "mean_active_links": 6.0
+  },
+  "per_drone_summary": {
+    "0": {
+      "final_pos": [
+        -4.0,
+        4.0,
+        5.395945900764738
+      ],
+      "final_battery_pct": 99.64197530864456,
+      "final_state": "SECTOR_SEARCH",
+      "distance_flown_m": 5.295934802125466
+    },
+    "1": {
+      "final_pos": [
+        4.0,
+        4.0,
+        5.334382898049658
+      ],
+      "final_battery_pct": 99.64197530864456,
+      "final_state": "SECTOR_SEARCH",
+      "distance_flown_m": 5.234382315571698
+    },
+    "2": {
+      "final_pos": [
+        -4.0,
+        -4.0,
+        3.7670072215786226
+      ],
+      "final_battery_pct": 99.64197530864456,
+      "final_state": "SECTOR_SEARCH",
+      "distance_flown_m": 3.666995388366698
+    },
+    "3": {
+      "final_pos": [
+        4.0,
+        -4.0,
+        4.998881591080056
+      ],
+      "final_battery_pct": 99.64197530864456,
+      "final_state": "SECTOR_SEARCH",
+      "distance_flown_m": 5.418468130591358
+    }
+  },
+  "status": "PASS"
+}

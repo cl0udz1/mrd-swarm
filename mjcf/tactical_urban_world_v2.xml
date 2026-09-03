@@ -1,0 +1,191 @@
+<mujoco model="tactical_urban_world_v2">
+  <compiler angle="radian" coordinate="local" autolimits="true"/>
+
+  <option timestep="0.001" integrator="implicitfast" gravity="0 0 -9.81"
+          viscosity="1.8e-5" density="1.225" wind="0 0 0"
+          cone="elliptic" impratio="10"/>
+
+  <visual>
+    <global offwidth="1920" offheight="1080"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <default>
+    <joint armature="0.0001" damping="0.001"/>
+    <geom condim="4" friction="0.8 0.01 0.01" margin="0.001"/>
+    <motor ctrllimited="true" ctrlrange="0 1"/>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="1"/>
+    </default>
+    <default class="collision">
+      <geom group="0"/>
+    </default>
+  </default>
+
+  <asset>
+    <texture name="grid_floor" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.10 0.13 0.18" rgb2="0.15 0.19 0.25"/>
+    <material name="floor_mat" texture="grid_floor" texrepeat="30 30" reflectance="0.05"/>
+    
+    <material name="mat_skyscraper" rgba="0.22 0.28 0.38 1" specular="0.5" shininess="0.6"/>
+    <material name="mat_industrial" rgba="0.38 0.32 0.26 1" specular="0.3" shininess="0.3"/>
+    <material name="mat_silo" rgba="0.28 0.38 0.32 1" specular="0.4" shininess="0.5"/>
+    <material name="mat_tower" rgba="0.35 0.35 0.40 1" specular="0.6" shininess="0.7"/>
+    <material name="mat_bridge" rgba="0.45 0.40 0.35 1" specular="0.3"/>
+    <material name="mat_wall" rgba="0.25 0.25 0.28 1"/>
+
+    <!-- Target Materials -->
+    <material name="target_mat_convoy" rgba="0.95 0.20 0.15 1" emission="0.7"/>
+    <material name="target_mat_fast" rgba="0.15 0.85 0.95 1" emission="0.7"/>
+    <material name="target_mat_shadow" rgba="0.95 0.80 0.10 1" emission="0.7"/>
+
+    <!-- Heterogeneous Drone Materials -->
+    <material name="drone_0_heavy" rgba="0.15 0.35 0.65 1" specular="0.5"/>
+    <material name="drone_1_fast" rgba="0.85 0.30 0.15 1" specular="0.6"/>
+    <material name="drone_2_thermal" rgba="0.15 0.75 0.45 1" specular="0.5"/>
+    <material name="drone_3_relay" rgba="0.65 0.25 0.75 1" specular="0.5"/>
+    <material name="prop_mat" rgba="0.4 0.4 0.45 0.7"/>
+  </asset>
+
+  <worldbody>
+    <!-- Tactical Theater Floor (60m x 60m) -->
+    <geom name="floor" type="plane" size="45 45 0.1" material="floor_mat"/>
+    <light name="sun" pos="0 0 60" dir="0 0 -1" diffuse="0.9 0.9 0.95" specular="0.4 0.4 0.4" directional="true"/>
+    <light name="fill" pos="-30 -30 35" dir="1 1 -1.5" diffuse="0.35 0.35 0.40" directional="true"/>
+
+    <!-- ================= 8 URBAN TACTICAL STRUCTURES ================= -->
+    <!-- 1. Central Skyscraper Alpha (14m Tall Multi-Tier) -->
+    <body name="skyscraper_alpha" pos="0.0 0.0 7.0">
+      <geom name="skyscraper_base" type="box" size="4.0 4.0 5.0" material="mat_skyscraper"/>
+      <geom name="skyscraper_mid" type="box" size="3.0 3.0 2.0" pos="0 0 7.0" material="mat_skyscraper"/>
+      <geom name="skyscraper_spire" type="cylinder" size="0.6 2.0" pos="0 0 10.0" material="mat_tower"/>
+    </body>
+
+    <!-- 2. Industrial Complex Bravo (6m Tall) -->
+    <body name="complex_bravo" pos="-14.0 12.0 3.0">
+      <geom name="complex_bravo_main" type="box" size="6.0 4.0 3.0" material="mat_industrial"/>
+      <geom name="complex_bravo_vent" type="cylinder" size="0.8 1.5" pos="2 1 4.0" material="mat_tower"/>
+    </body>
+
+    <!-- 3. Grain Silo Cluster Charlie (8m Tall) -->
+    <body name="silo_cluster_charlie" pos="-16.0 -14.0 4.0">
+      <geom name="silo_1" type="cylinder" size="2.2 4.0" pos="-2.0 0 0" material="mat_silo"/>
+      <geom name="silo_2" type="cylinder" size="2.2 4.0" pos="2.0 0 0" material="mat_silo"/>
+    </body>
+
+    <!-- 4. Logistics Warehouse Depot Delta (5m Tall) -->
+    <body name="depot_delta" pos="15.0 -15.0 2.5">
+      <geom name="depot_delta_geom" type="box" size="7.0 5.0 2.5" material="mat_industrial"/>
+    </body>
+
+    <!-- 5. High-Voltage Power Substation Echo (4m Tall) -->
+    <body name="substation_echo" pos="14.0 14.0 2.0">
+      <geom name="substation_echo_geom" type="box" size="4.5 4.5 2.0" material="mat_skyscraper"/>
+    </body>
+
+    <!-- 6. Communications Radar Pylon Foxtrot (10m Tall) -->
+    <body name="radar_pylon_foxtrot" pos="22.0 0.0 5.0">
+      <geom name="pylon_mast" type="cylinder" size="0.8 5.0" material="mat_tower"/>
+      <geom name="pylon_dish" type="sphere" size="1.6" pos="0 0 5.5" material="mat_tower"/>
+    </body>
+
+    <!-- 7. Security Tower Golf (12m Tall) -->
+    <body name="security_tower_golf" pos="-22.0 0.0 6.0">
+      <geom name="tower_golf_mast" type="box" size="1.5 1.5 6.0" material="mat_tower"/>
+      <geom name="tower_golf_cap" type="box" size="2.5 2.5 0.8" pos="0 0 6.5" material="mat_skyscraper"/>
+    </body>
+
+    <!-- 8. Elevated Skybridge Hotel (7m Clearance Overpass) -->
+    <body name="skybridge_hotel" pos="0.0 -18.0 4.5">
+      <geom name="bridge_span" type="box" size="10.0 2.0 0.8" material="mat_bridge"/>
+      <geom name="bridge_pillar_l" type="cylinder" size="0.8 3.5" pos="-8 0 -3.5" material="mat_tower"/>
+      <geom name="bridge_pillar_r" type="cylinder" size="0.8 3.5" pos="8 0 -3.5" material="mat_tower"/>
+    </body>
+
+    <!-- Perimeter Boundary Walls -->
+    <geom name="wall_n" type="box" size="30.0 0.5 1.5" pos="0 28.0 1.5" material="mat_wall"/>
+    <geom name="wall_s" type="box" size="30.0 0.5 1.5" pos="0 -28.0 1.5" material="mat_wall"/>
+    <geom name="wall_e" type="box" size="0.5 30.0 1.5" pos="28.0 0 1.5" material="mat_wall"/>
+    <geom name="wall_w" type="box" size="0.5 30.0 1.5" pos="-28.0 0 1.5" material="mat_wall"/>
+
+    <!-- ================= 3 DYNAMIC EVASIVE GROUND TARGETS ================= -->
+    <!-- Target 0: Armored Convoy Leader -->
+    <body name="target_0" pos="12.0 -5.0 0.35">
+      <joint name="target_0_joint" type="free"/>
+      <geom name="target_0_geom" type="box" size="1.0 0.6 0.35" material="target_mat_convoy"/>
+      <site name="target_0_beacon" pos="0 0 0.4" size="0.12"/>
+    </body>
+
+    <!-- Target 1: Fast Evasive Interceptor -->
+    <body name="target_1" pos="-18.0 6.0 0.30">
+      <joint name="target_1_joint" type="free"/>
+      <geom name="target_1_geom" type="box" size="0.8 0.5 0.30" material="target_mat_fast"/>
+      <site name="target_1_beacon" pos="0 0 0.35" size="0.12"/>
+    </body>
+
+    <!-- Target 2: Stealth Shadow Asset -->
+    <body name="target_2" pos="5.0 20.0 0.30">
+      <joint name="target_2_joint" type="free"/>
+      <geom name="target_2_geom" type="box" size="0.8 0.5 0.30" material="target_mat_shadow"/>
+      <site name="target_2_beacon" pos="0 0 0.35" size="0.12"/>
+    </body>
+
+    <!-- ================= 4 QUADROTOR DRONE BODIES ================= -->
+    <body name="drone_0" pos="-8 8 1.5">
+      <joint name="drone_0_joint" type="free"/>
+      <inertial pos="0 0 0" mass="0.65" diaginertia="1.1e-3 1.1e-3 2.1e-3"/>
+      <geom type="box" size="0.045 0.045 0.02" material="drone_0_heavy"/>
+      <geom type="capsule" fromto="0 0 0 0.085 0.085 0" size="0.005" material="drone_0_heavy"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 0.085 0" size="0.005" material="drone_0_heavy"/>
+      <geom type="capsule" fromto="0 0 0 0.085 -0.085 0" size="0.005" material="drone_0_heavy"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 -0.085 0" size="0.005" material="drone_0_heavy"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 -0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 -0.085 0" material="prop_mat"/>
+    </body>
+
+    <body name="drone_1" pos="8 8 1.5">
+      <joint name="drone_1_joint" type="free"/>
+      <inertial pos="0 0 0" mass="0.28" diaginertia="1.1e-3 1.1e-3 2.1e-3"/>
+      <geom type="box" size="0.045 0.045 0.02" material="drone_1_fast"/>
+      <geom type="capsule" fromto="0 0 0 0.085 0.085 0" size="0.005" material="drone_1_fast"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 0.085 0" size="0.005" material="drone_1_fast"/>
+      <geom type="capsule" fromto="0 0 0 0.085 -0.085 0" size="0.005" material="drone_1_fast"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 -0.085 0" size="0.005" material="drone_1_fast"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 -0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 -0.085 0" material="prop_mat"/>
+    </body>
+
+    <body name="drone_2" pos="-8 -8 1.5">
+      <joint name="drone_2_joint" type="free"/>
+      <inertial pos="0 0 0" mass="0.42" diaginertia="1.1e-3 1.1e-3 2.1e-3"/>
+      <geom type="box" size="0.045 0.045 0.02" material="drone_2_thermal"/>
+      <geom type="capsule" fromto="0 0 0 0.085 0.085 0" size="0.005" material="drone_2_thermal"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 0.085 0" size="0.005" material="drone_2_thermal"/>
+      <geom type="capsule" fromto="0 0 0 0.085 -0.085 0" size="0.005" material="drone_2_thermal"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 -0.085 0" size="0.005" material="drone_2_thermal"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 -0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 -0.085 0" material="prop_mat"/>
+    </body>
+
+    <body name="drone_3" pos="0 0 9.5">
+      <joint name="drone_3_joint" type="free"/>
+      <inertial pos="0 0 0" mass="0.50" diaginertia="1.1e-3 1.1e-3 2.1e-3"/>
+      <geom type="box" size="0.045 0.045 0.02" material="drone_3_relay"/>
+      <geom type="capsule" fromto="0 0 0 0.085 0.085 0" size="0.005" material="drone_3_relay"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 0.085 0" size="0.005" material="drone_3_relay"/>
+      <geom type="capsule" fromto="0 0 0 0.085 -0.085 0" size="0.005" material="drone_3_relay"/>
+      <geom type="capsule" fromto="0 0 0 -0.085 -0.085 0" size="0.005" material="drone_3_relay"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="0.085 -0.085 0" material="prop_mat"/>
+      <geom type="cylinder" size="0.06 0.001" pos="-0.085 -0.085 0" material="prop_mat"/>
+    </body>
+
+  </worldbody>
+</mujoco>

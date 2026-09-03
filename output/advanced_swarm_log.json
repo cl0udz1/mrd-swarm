@@ -1,0 +1,136 @@
+{
+  "mission": "MRD-Swarm V2 90-Second Full-Scale Autonomous Reconnaissance",
+  "duration_s": 90.0,
+  "total_control_steps": 9000,
+  "phases_executed": [
+    {
+      "phase": 1,
+      "name": "Decoupled Deep Quadrant Mapping",
+      "time_window": "0.0s - 20.0s"
+    },
+    {
+      "phase": 2,
+      "name": "Multi-HVT Discovery & Gossip Consensus",
+      "time_window": "20.0s - 40.0s"
+    },
+    {
+      "phase": 3,
+      "name": "Dynamic Inter-Sector Handover (D1 -> D0)",
+      "time_window": "40.0s - 65.0s"
+    },
+    {
+      "phase": 4,
+      "name": "Sprint & Battery Relief on Station (D1 -> D2)",
+      "time_window": "65.0s - 80.0s"
+    },
+    {
+      "phase": 5,
+      "name": "Coordinated Perimeter Sweep & Base Recovery",
+      "time_window": "80.0s - 90.0s"
+    }
+  ],
+  "environment": "60m x 60m Tactical Urban Theater (8 Buildings)",
+  "wind_turbulence": "Dryden Gust Model (V_max = 2.0 m/s)",
+  "total_hvt_detections": 9601,
+  "target_tracking_coverage_pct": 100.0,
+  "gossip_mesh_metrics": {
+    "total_sent": 12946,
+    "total_delivered": 33355,
+    "packet_delivery_rate_pct": 257.64714969874865,
+    "mean_active_links": 5.511222222222222
+  },
+  "drone_fleet_summary": {
+    "0": {
+      "class": "HEAVY_SCOUT",
+      "mass_kg": 0.65,
+      "battery_cap_wh": 8.5,
+      "distance_flown_m": 12.870485243119852,
+      "final_battery_pct": 98.29411764697711,
+      "final_role": "AREA_SURVEYOR",
+      "ai_tool_commands_count": 1
+    },
+    "1": {
+      "class": "FAST_INTERCEPTOR",
+      "mass_kg": 0.28,
+      "battery_cap_wh": 3.2,
+      "distance_flown_m": 20.17446304518441,
+      "final_battery_pct": 95.46875000003277,
+      "final_role": "BASE_RECOVERY",
+      "ai_tool_commands_count": 2
+    },
+    "2": {
+      "class": "THERMAL_SURVEYOR",
+      "mass_kg": 0.42,
+      "battery_cap_wh": 5.5,
+      "distance_flown_m": 15.003621459802007,
+      "final_battery_pct": 97.36363636365543,
+      "final_role": "RELIEF_PATROL",
+      "ai_tool_commands_count": 2
+    },
+    "3": {
+      "class": "COMMS_RELAY",
+      "mass_kg": 0.52,
+      "battery_cap_wh": 6.8,
+      "distance_flown_m": 14.577997747468402,
+      "final_battery_pct": 97.86764705883894,
+      "final_role": "COMMS_ANCHOR",
+      "ai_tool_commands_count": 2
+    }
+  },
+  "ai_agent_command_stream": [
+    {
+      "timestamp": 65.0,
+      "agent_id": 1,
+      "drone_class": "FAST_INTERCEPTOR",
+      "role": "BASE_RECOVERY",
+      "reasoning": "High-speed sprint budget exhausted (96.7% SoC); requesting patrol relief for NE sector",
+      "tool_name": "gossip_request_relief",
+      "tool_args": {
+        "sector": [
+          0.0,
+          0.0,
+          25.0,
+          25.0
+        ],
+        "battery_pct": 96.72743055557922
+      },
+      "status": "EXECUTED"
+    },
+    {
+      "timestamp": 66.0,
+      "agent_id": 2,
+      "drone_class": "THERMAL_SURVEYOR",
+      "role": "RELIEF_PATROL",
+      "reasoning": "Acknowledged D1 relief request via Gossip mesh; re-routing to assume NE sector patrol",
+      "tool_name": "recon_area_search",
+      "tool_args": {
+        "bounds": [
+          0.0,
+          0.0,
+          25.0,
+          25.0
+        ],
+        "speed_ms": 2.2399999999999998,
+        "pattern": "lawnmower"
+      },
+      "status": "EXECUTED"
+    },
+    {
+      "timestamp": 70.0,
+      "agent_id": 3,
+      "drone_class": "COMMS_RELAY",
+      "role": "COMMS_ANCHOR",
+      "reasoning": "Optimizing mesh connectivity; relocating high-gain RF dish to centroid [0.7, 1.9]",
+      "tool_name": "comms_relay_reposition",
+      "tool_args": {
+        "new_center": [
+          1.4332372367351909,
+          3.791405967084515
+        ],
+        "alt": 5.5
+      },
+      "status": "EXECUTED"
+    }
+  ],
+  "verification_status": "PASS"
+}

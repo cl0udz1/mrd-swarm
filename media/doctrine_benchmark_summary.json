@@ -1,0 +1,26 @@
+{
+  "AGGRESSIVE_PINCER": {
+    "name": "Aggressive Multi-Axis Pincer Dash",
+    "tti_seconds": 12.0,
+    "mean_enclosure_deg": 52.3,
+    "mean_velocity_mps": 12.63,
+    "total_sightings": 0,
+    "energy_consumed_wh": 3.211
+  },
+  "WOLFPACK_CONTAINMENT": {
+    "name": "Concentric Wolfpack Containment",
+    "tti_seconds": 12.0,
+    "mean_enclosure_deg": 81.9,
+    "mean_velocity_mps": 12.66,
+    "total_sightings": 0,
+    "energy_consumed_wh": 3.358
+  },
+  "DEEPSEEK_ADAPTIVE": {
+    "name": "DeepSeek Cognitive Autonomous Adaptive",
+    "tti_seconds": 12.0,
+    "mean_enclosure_deg": 65.5,
+    "mean_velocity_mps": 12.13,
+    "total_sightings": 0,
+    "energy_consumed_wh": 3.371
+  }
+}
