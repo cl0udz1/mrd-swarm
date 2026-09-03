@@ -201,13 +201,17 @@ class DeepSeekSwarmCommander:
         model: str = DEFAULT_MODEL,
         update_interval_s: float = 3.0,
         request_timeout_s: float = 8.0,
+        enabled: Optional[bool] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.update_interval_s = update_interval_s
         self.timeout_s = request_timeout_s
-        self.enabled = bool(self.api_key and self.api_key.startswith("sk-"))
+        if enabled is not None:
+            self.enabled = enabled
+        else:
+            self.enabled = os.environ.get("ENABLE_REMOTE_AI", "0") in ("1", "true", "True") and bool(self.api_key and self.api_key.startswith("sk-"))
 
         self.last_query_time = -999.0
         self.is_querying = False

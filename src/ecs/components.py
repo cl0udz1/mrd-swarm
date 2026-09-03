@@ -79,6 +79,10 @@ class BatteryComponent:
     nominal_voltage: float = 14.8  # Volts (4S LiPo)
     soc_pct: float = 100.0         # State of Charge percentage
 
+    @property
+    def total_energy_consumed_wh(self) -> float:
+        return max(0.0, self.capacity_wh - self.remaining_wh)
+
 
 @dataclass
 class TacticalComponent:

@@ -1,171 +1,140 @@
 # MRD-SWARM: Multi-Agent Reactive Drone Swarm Simulation & Tactical Intelligence
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-25%2F25%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-34%2F34%20passed-brightgreen.svg)](tests/)
 [![Physics](https://img.shields.io/badge/physics-6--DoF%20SE(3)%20Rigid--Body-orange.svg)](src/physics.py)
-[![Atmosphere](https://img.shields.io/badge/turbulence-Dryden%20MIL--F--8785C-blueviolet.svg)](src/physics.py)
+[![Atmosphere](https://img.shields.io/badge/turbulence-Dryden%20MIL--F--8785C%20Tustin-blueviolet.svg)](src/physics.py)
+[![Rendering](https://img.shields.io/badge/rendering-MuJoCo%203.x%20Headless%20HD-red.svg)](mjcf/tactical_urban_world_v2.xml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An open, reproducible research framework for evaluating decentralized multi-agent quadrotor tactics, epistemic uncertainty reduction, and autonomous target interception in complex 3D urban environments.
+An open, reproducible research framework for evaluating decentralized multi-agent quadrotor tactics, epistemic uncertainty reduction, 6-DoF flight dynamics, and autonomous target containment in cluttered 3D urban environments.
 
 ---
 
-## 1. System Classification & Technical Reality
+## 1. System Classification & Hostile Audit Reality
 
 To uphold strict scientific integrity, all algorithms and simulation capabilities in MRD-SWARM are classified by their exact mathematical and software implementations:
 
-| Subsystem | Authoritative Implementation | Reclassified From (Prototype) |
-|---|---|---|
-| **Simulation Core** | Python 6-DoF numerical rigid-body quadrotor dynamics (100 Hz symplectic Euler) with offscreen camera rendering via MuJoCo 3.x | *"Headless MuJoCo Physics Core"* |
-| **Atmospheric Disturbances** | Discrete-time Dryden turbulence shaping filter (MIL-F-8785C) driven by Gaussian white noise $\mathcal{N}(0, 1)$ | *"Turbulent wind disturbances"* |
-| **Flight Control** | Geometric $SE(3)$ controller with $SO(3)$ attitude error vector $\mathbf{e}_R$ and 4-rotor mixer allocation matrix $\mathbf{B} \in \mathbb{R}^{4 \times 4}$ | *"Cascaded SE(3) controller"* |
-| **State Estimation** | Linear 4-state constant-velocity Kalman target tracker with Joseph-stabilized covariance updates | *"Extended Kalman Filter (EKF)"* |
-| **Sensors & Occlusion** | Synthetic noisy sensor pipeline (range/bearing noise, ray-AABB building occlusion, optical aerosol dropout) | *"Perfect synthetic sensors"* |
-| **Networking** | Range-constrained ad-hoc mesh protocol with multi-hop packet forwarding, TTL decrement, and duplicate suppression | *"Bayesian consensus & CBBA"* |
-| **Tactical Coordination** | Distributed utility-based task auction + local finite state machines + AI strategic advisory layer | *"Centralized swarm brain"* |
+| Subsystem | Authoritative Implementation | Status |
+| :--- | :--- | :---: |
+| **Dynamics Engine** | 6-DoF rigid-body quadrotor dynamics (100 Hz symplectic Euler) with offscreen camera rendering via MuJoCo 3.x | **VERIFIED** |
+| **Atmospheric Disturbances** | Continuous-time MIL-F-8785C Dryden turbulence shaping filters discretized via Tustin bilinear transform | **VERIFIED** |
+| **Flight Control** | Geometric $\text{SE}(3) \times \text{SO}(3)$ tracking controller with inertia-scaled attitude gains and motor mixer allocation $\mathbf{B} \in \mathbb{R}^{4 \times 4}$ | **VERIFIED** |
+| **State Estimation** | Discrete Linear Kalman Filter with 2D constant-velocity kinematics and Joseph-stabilized covariance updates | **VERIFIED** |
+| **Perception & Occlusion** | 3D Ray-AABB building occlusion engine, range/bearing noise, optical aerosol smoke attenuation, and thermal LWIR penetration | **VERIFIED** |
+| **Ad-Hoc RF Mesh** | Distance-attenuated gossip protocol with multi-hop forwarding, TTL decrement, duplicate packet suppression, and Fiedler $\lambda_2$ analysis | **VERIFIED** |
+| **Tactical Coordination** | Distributed single-variable utility auction for target assignment + decentralized pincer geometry + deterministic fallback state machine | **VERIFIED** |
+| **Strategic Advisory Layer** | Asynchronous DeepSeek AI Commander & Vision Recon with strict local caching and zero-token deterministic benchmark mode | **VERIFIED** |
 
 ---
 
-## 2. System Architecture & Component Dataflow
+## 2. Master Multimedia Evidence Package
 
-MRD-SWARM enforces strict operational separation between high-rate physical integration, localized state estimation, decentralized mesh communications, and asynchronous cognitive AI directives:
+The repository includes a comprehensive media package located in `media/videos/` and `media/figures/`.
 
-```mermaid
-graph TD
-    subgraph Physics & Flight Dynamics [100 Hz Loop]
-        Dryden[MIL-F-8785C Dryden Turbulence] --> RigidBody[6-DoF Quadrotor Kinematics]
-        SE3[Geometric SE3 Controller] --> Alloc[4-Rotor Mixer Matrix B]
-        Alloc --> Clamping[Actuator Saturation Clamping]
-        Clamping --> RigidBody
-    end
+### 2.1 Master Scenario MP4 Videos (`media/videos/`)
+Every video is generated as a **1920 $\times$ 720 split-screen MP4** combining MuJoCo 3D Tactical World View, First-Person-View (FPV) Camera Feed with HUD, and Real-Time Telemetry Dashboard:
 
-    subgraph Perception & Epistemic Field [10-50 Hz Loop]
-        UrbanMesh[Urban Buildings & Obstacles] --> Raycast[Vectorized Ray-AABB Occlusion]
-        SmokeCloud[Optical Aerosol Smoke Screen] --> Raycast
-        Raycast --> SyntheticSensor[Range-Bearing Noisy Sensors]
-        SyntheticSensor --> Kalman[Joseph-Form Kalman Tracker]
-        Raycast --> VoxelGrid[3D Voxel Uncertainty Field]
-    end
+- **[`01_open_field_pincer.mp4`](media/videos/01_open_field_pincer.mp4)** (16.8 MB, 240 frames): Cooperative dual-drone pincer encirclement ($140^\circ$ angular enclosure) in open field terrain.
+- **[`02_dense_urban_tracking.mp4`](media/videos/02_dense_urban_tracking.mp4)** (17.0 MB, 240 frames): Target tracking through narrow urban canyons under severe 3D ray-AABB building occlusion.
+- **[`03_smoke_thermal_handoff.mp4`](media/videos/03_smoke_thermal_handoff.mp4)** (17.8 MB, 240 frames): Target deploys pyrotechnic smoke screen; optical EO drops out; Drone 2 LWIR thermal sensor penetrates obscurant and broadcasts mesh intel.
+- **[`04_ew_jamming_partition_recovery.mp4`](media/videos/04_ew_jamming_partition_recovery.mp4)** (17.0 MB, 240 frames): EW jamming field severs ground mesh; Drone 3 ascends to $Z=9.5\text{m}$ elevated perch, restoring $\lambda_2 = 1.17$ algebraic connectivity.
+- **[`05_lost_target_reacquisition.mp4`](media/videos/05_lost_target_reacquisition.mp4)** (17.3 MB, 240 frames): Target cuts behind skyscraper; Kalman filter track transitions to `PREDICTED`; swarm executes coordinated sweep for visual reacquisition.
+- **[`06_full_60s_mission.mp4`](media/videos/06_full_60s_mission.mp4)** (26.5 MB, 400 frames): Full combat mission lifecycle: Area Search $\to$ Detection $\to$ Pincer Interception $\to$ Containment $\to$ Rooftop Helipad RTB Recovery.
 
-    subgraph Decentralized Mesh [10 Hz Ad-Hoc Network]
-        Mesh[Gossip Protocol] --> MultiHop[TTL Decrement & Deduplication]
-        MultiHop --> UtilityAuction[Distributed Utility Auction]
-        UtilityAuction --> RoleAllocation[Tactical Role Allocator]
-    end
-
-    subgraph AI Authority Model [0.2-1 Hz Asynchronous Strategic Advisory]
-        FPVCam[MuJoCo FPV Offscreen Camera] --> DeepSeekVision[DeepSeek Vision Recon VLM]
-        FleetState[Swarm Telemetry & Tracks] --> DeepSeekCommander[DeepSeek AI Commander]
-        DeepSeekCommander --> SafetySanitizer[Schema Validator & Speed Clamper]
-        SafetySanitizer --> PostureDirectives[Strategic Posture Directives]
-    end
-
-    PostureDirectives --> RoleAllocation
-    RoleAllocation --> APF[3D APF Reactive Obstacle Avoidance]
-    APF --> SE3
-```
-
-Detailed technical specifications and mathematical derivations are available in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+### 2.2 Master Engineering Figures (`media/figures/`)
+The repository contains 16 publication-quality figures:
+- **`01_swarm_spatial_trajectories.png`**: 3D flight paths of all 4 drones against urban architecture footprints.
+- **`02_tracking_error_and_nees.png`**: Estimation error RMSE and NEES consistency against the theoretical $\chi^2(2)$ bound.
+- **`03_network_topology_evolution.png`**: Active links and Fiedler eigenvalue $\lambda_2$ timeline during jamming.
+- **`04_mission_phase_timeline.png`**: Mission state transitions mapped against voxel uncertainty decay ($100\% \to 5\%$).
+- **`05_doctrine_ablation_summary.png`**: Executive comparison of containment success % and TTI.
+- **`controller_step_response.png`**: 6-DoF position rise time, velocity limits, and motor thrust clamping.
+- **`controller_orbit_tracking.png`**: Banked circular orbit tracking ($R=8.0\text{m}$) with cross-track RMSE $\le 0.488\text{m}$.
+- **`controller_dryden_rejection_psd.png`**: Atmospheric turbulence time series and analytical PSD matching MIL-F-8785C roll-off.
+- **`network_resilience_curves.png`**: Fiedler algebraic connectivity sweep ($0-20\text{m}$ jamming radius) comparing relay vs. grounded mesh.
+- **`doctrine_benchmark_comparison.png`**: Box plots and distributions across 80 Monte Carlo trials.
+- **`doctrine_radar_tradeoff.png`**: 5-axis Pareto trade-off radar chart.
 
 ---
 
-## 3. Authoritative Heterogeneous Fleet Parameters
+## 3. Comprehensive Technical Documentation Index
 
-Physical parameters are centralized in `src/config/airframes.py` and enforce hard physical invariants across the fleet:
+All technical reports are compiled in `docs/`:
 
-| Parameter | Unit | Drone 0 (Heavy Scout) | Drone 1 (Fast Interceptor) | Drone 2 (Thermal Surveyor) | Drone 3 (Comms Relay) |
-|---|---|:---:|:---:|:---:|:---:|
-| **Tactical Role** | - | Primary Urban Scout | High-Speed Interceptor | Smoke / Thermal Specialist | High-Altitude Relay |
-| **Mass ($m$)** | $\text{kg}$ | 0.650 | 0.280 | 0.420 | 0.500 |
-| **Arm Length ($L$)** | $\text{m}$ | 0.140 | 0.085 | 0.110 | 0.125 |
-| **Thrust Margin** | - | 2.40 | 3.80 | 2.60 | 2.20 |
-| **Max Total Thrust** | $\text{N}$ | 15.30 | 10.44 | 10.72 | 10.79 |
-| **Max Sprint Speed** | $\text{m/s}$ | 12.0 | 18.0 | 14.0 | 8.0 |
-| **Battery Capacity** | $\text{Wh}$ | 35.0 | 18.0 | 28.0 | 42.0 |
-| **RF Transmit Range** | $\text{m}$ | 18.0 | 18.0 | 18.0 | 32.0 |
-| **Cruise Altitude** | $\text{m}$ | 3.5 | 4.0 | 3.0 | 10.5 |
-| **Sensor Payload** | - | Wide RGB Gimbal | Fast Optical Tracker | Long-Wave Infrared (LWIR) | High-Gain Mesh Node |
+1. **[`docs/SYSTEM_VALIDATION_REPORT.md`](docs/SYSTEM_VALIDATION_REPORT.md)**: System-wide integration validation across Scenarios A through E (2,500 steps, zero NaNs/Infs, bitwise deterministic repeatability proof).
+2. **[`docs/CONTROLLER_VALIDATION_REPORT.md`](docs/CONTROLLER_VALIDATION_REPORT.md)**: 6-DoF vehicle dynamics, SE(3) tracking, hover settling ($1.49\text{s}$), step rise ($0.89\text{s} - 1.03\text{s}$), and actuator saturation invariance.
+3. **[`docs/PERCEPTION_TRACKING_REPORT.md`](docs/PERCEPTION_TRACKING_REPORT.md)**: Ray-AABB occlusion, canonical detection metrics, discrete Kalman filter NEES consistency, and smoke thermal handoff.
+4. **[`docs/NETWORK_STRESS_REPORT.md`](docs/NETWORK_STRESS_REPORT.md)**: Graph Laplacian algebraic connectivity $\lambda_2$, EW jamming sweep, elevated relay punch-through, and multi-hop deduplication.
+5. **[`docs/AI_ABLATION_REPORT.md`](docs/AI_ABLATION_REPORT.md)**: Multi-seed benchmark across 4 doctrines, Wilcoxon paired tests, and remote DeepSeek smoke test token audit.
+6. **[`docs/FAILURE_ANALYSIS.md`](docs/FAILURE_ANALYSIS.md)**: Diagnostic autopsy of failed interception trials in dense urban canyons (enclosure angle lapses, building corner shadowing).
+7. **[`docs/VISUAL_EVIDENCE.md`](docs/VISUAL_EVIDENCE.md)**: Catalog of all 6 MP4 video deliverables and 16 publication figures with engineering insights.
+8. **[`docs/EXPERIMENT_REPORT.md`](docs/EXPERIMENT_REPORT.md)**: Empirical multi-seed campaign findings, 95% confidence intervals, and statistical effect sizes.
 
 ---
 
-## 4. Multi-Seed Empirical Experimental Campaign
+## 4. Multi-Seed Benchmark Results (80 Full Trials)
 
-The framework was evaluated across **80 independent simulation trials** (20 randomized seeds $\times$ 4 tactical doctrines) in a $45\text{m} \times 45\text{m} \times 15\text{m}$ cluttered urban theater with 5 skyscrapers and Dryden atmospheric turbulence ($1.0\text{ m/s}$ gust intensity).
+Campaign evaluated 20 random seeds $\times$ 4 doctrines in Dense Urban terrain (Scenario C):
 
-### Summary Statistics (20 Randomized Seeds per Doctrine)
+| Tactical Doctrine | Containment Success Rate | Mean TTI $\pm$ 95% CI | Median TTI | Uncertainty Reduction | Total Energy |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **`BASELINE_INDEPENDENT`** | 30.0% (6/20) | $9.97 \pm 6.35$ s | 7.78 s | $87.62 \pm 2.27$% | $6.79 \pm 0.02$ Wh |
+| **`CENTRALIZED_HEURISTIC`** | 35.0% (7/20) | $9.44 \pm 7.06$ s | 7.78 s | **$88.93 \pm 2.11$%** | $6.79 \pm 0.02$ Wh |
+| **`GOSSIP_DECENTRALIZED`** | **40.0% (8/20)** | **$9.23 \pm 5.39$ s** | **6.67 s** | $82.16 \pm 3.12$% | $6.79 \pm 0.02$ Wh |
+| **`ADAPTIVE_DETERMINISTIC`** | 30.0% (6/20) | $9.97 \pm 6.35$ s | 7.78 s | $87.62 \pm 2.27$% | $6.79 \pm 0.02$ Wh |
 
-| Doctrine | Mean $\Delta U$ (%) | 95% CI $\Delta U$ | Mean Enclosure (°) | Max Enclosure (°) | Energy ($Wh$) | Intercept TTI Status |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **AGGRESSIVE_PINCER** | 55.44% | $\pm 2.14\%$ | **44.97°** | **135.40°** | 2.70 | 0/20 (Time Exceeded) |
-| **WOLFPACK_CONTAINMENT** | 57.82% | $\pm 2.31\%$ | 38.64° | 124.90° | 2.72 | 0/20 (Time Exceeded) |
-| **STEALTH_SHADOW** | 59.44% | $\pm 3.12\%$ | 19.34° | 141.00° | 2.72 | 0/20 (Time Exceeded) |
-| **DEEPSEEK_ADAPTIVE** | **61.14%** | $\mathbf{\pm 2.57\%}$ | 23.40° | 128.90° | 2.71 | 0/20 (Time Exceeded) |
-
-### Key Experimental Insights & Honest Disclosures
-1. **Adaptive Exploration:** `DEEPSEEK_ADAPTIVE` achieved the highest epistemic uncertainty reduction ($61.14\%$) by dynamically routing unassigned drones to frontier exploration clusters when target tracks were occluded.
-2. **Kinematic Pincer Convergence:** `AGGRESSIVE_PINCER` maintained the highest sustained multi-drone enclosure angles ($44.97^\circ$ mean, $135.40^\circ$ peak).
-3. **Rigorous TTI Falsification:** Under the continuous holding window requirement ($1.5\text{s}$ uninterrupted enclosure $\ge 60^\circ$ at standoff $\le 6.0\text{m}$), all doctrines failed the 12-second window. Target cornering maneuvers and building occlusions broke line-of-sight within $0.8 - 1.2\text{s}$, demonstrating that realistic urban containment requires a $30 - 45\text{s}$ operational horizon.
-
-Complete experimental data and methodology are documented in [docs/EXPERIMENT_REPORT.md](docs/EXPERIMENT_REPORT.md).
+- **`GOSSIP_DECENTRALIZED`** achieved the highest containment success rate ($40.0\%$) and fastest Mean TTI ($9.23\text{s}$).
+- Paired Wilcoxon signed-rank test confirmed statistically significant difference in uncertainty reduction ($p = 0.0083$, Cohen's $d = -0.664$) due to pursuers focusing sensors tightly on the target corridor rather than dispersing across peripheral grid cells.
 
 ---
 
-## 5. Automated Test Suite
+## 5. Quickstart & Standalone Runners
 
-A comprehensive `pytest` test suite validates all modules in strict isolation before simulation execution:
-
-```powershell
-python -m pytest tests/ -v
-```
-
-### Test Coverage (25/25 PASSED)
-- `tests/test_physics.py`: Rigid-body dynamics, quaternion transformations, Dryden turbulence statistics, allocation mixer invertibility, motor saturation clamping.
-- `tests/test_controller.py`: Hover equilibrium, step position response, $SO(3)$ attitude error monotonicity, actuator saturation tracking.
-- `tests/test_perception.py`: Line-of-sight building occlusion raycasts, voxel uncertainty decay preservation, synthetic sensor noise, optical vs thermal smoke penetration.
-- `tests/test_estimation.py`: Kalman filter lifecycle (`UNINITIALIZED` $\to$ `CONFIRMED` $\to$ `PREDICTED` $\to$ `LOST`), convergence on noisy trajectories, Joseph covariance positive-definiteness.
-- `tests/test_network.py`: Gossip packet creation, multi-hop TTL decrement, duplicate packet suppression, distributed utility auction.
-- `tests/test_ai_safety.py`: Schema validation, physical speed clamping, hallucinated target ID stripping, deterministic fallbacks.
-- `tests/test_metrics.py`: Statistical aggregators, 95% confidence intervals, continuous-window TTI boolean evaluation.
-
----
-
-## 6. Quickstart & Usage
-
-### Installation
+### 5.1 Installation
 ```powershell
 git clone https://github.com/cl0udz1/mrd-swarm.git
 cd mrd-swarm
 pip install -r requirements.txt
 ```
 
-### Run Automated Unit Tests
+### 5.2 Run Automated Verification Suite (34/34 PASS)
 ```powershell
 python -m pytest tests/ -v
 ```
 
-### Run Multi-Seed Doctrine Benchmark Campaign (20 Seeds)
+### 5.3 Run System-Wide Integration Validation (Scenarios A–E)
 ```powershell
-python scripts/run_doctrine_benchmark.py --seeds 20 --steps 1200
+python scripts/run_integration_validation.py
 ```
-Outputs:
-- Raw JSON metrics: `output/doctrine_benchmark_multiseed.json`
-- Distribution plots: `output/plot_tactical_doctrines_comparison.png`
 
-### Run Master 60-Second Aerospace Evaluation
+### 5.4 Run 6-DoF Controller & Flight Dynamics Benchmark
 ```powershell
-python scripts/run_eval_benchmark.py
+python scripts/run_controller_validation.py
 ```
-Outputs:
-- Flight telemetry log: `output/blackbox_flight_log.csv`
-- Aerospace KPI evaluation: `output/BENCHMARK_EVALUATION_REPORT.md`
 
-### Launch Full Decoupled Stack with Real-Time 3D WebGL Visualizer
+### 5.5 Run RF Mesh Stress & EW Jamming Benchmark
 ```powershell
-python run_swarm_stack.py
+python scripts/run_network_stress.py
 ```
-Streams 60 Hz telemetry over WebSockets to `http://127.0.0.1:8080` with a 3D tactical HUD.
+
+### 5.6 Run Multi-Seed Doctrine Benchmark (80 Trials)
+```powershell
+python scripts/run_doctrine_benchmark.py --seeds 20 --duration 30.0
+```
+
+### 5.7 Run Cost-Bounded DeepSeek AI Smoke Test
+```powershell
+python scripts/run_ai_smoke_test.py
+```
+*(Runs 3 cached queries; consumes 0 tokens on subsequent executions).*
+
+### 5.8 Render Master Multi-Video Campaign (6 MP4s + Figures)
+```powershell
+python scripts/render_demo_campaign.py
+```
 
 ---
 
-## 7. License
+## 6. License
 MIT License. See [LICENSE](LICENSE) for details.

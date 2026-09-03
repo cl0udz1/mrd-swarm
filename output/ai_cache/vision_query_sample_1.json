@@ -1,0 +1,9 @@
+{
+  "model": "deepseek-v4-flash-vision-exp",
+  "latency_s": 3.92,
+  "target_detected": true,
+  "target_type": "HIGH_VALUE_VEHICLE",
+  "threat_level": "HIGH",
+  "description": "Single red rectangular target marker centered on a black background, indicating a designated high-value vehicle. No smoke or obscurants are present, providing clear line of sight.",
+  "recommendation": "Tracker drone to lock and maintain visual on the red marker. Flanker drone to reposition to the north for an intercept route."
+}

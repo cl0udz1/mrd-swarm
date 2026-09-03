@@ -5,9 +5,9 @@ ai_agent_core.py — Heterogeneous Swarm AI Cognitive Engine & Decentralized Mul
 Provides:
 - Heterogeneous Drone Specs: Heavy Scout, Fast Interceptor, Thermal Surveyor, Comms Relay
 - Explicit AI Cognitive Command Engine: Structured Tool Calls, Natural Language Reasoning Chains, and Command Logs
-- Multi-hop Gossip Mesh with Relay Node amplification and Bayesian belief state fusion
+- Multi-hop Gossip Mesh with Relay Node amplification and confidence-weighted belief state fusion
 - Dynamic Tactical Events: Inter-Sector Target Handover, Battery Relief on Station, Adaptive Comms
-- Consensus-Based Bundle Algorithm (CBBA) for dynamic target interception auctions
+- Distributed Utility Auction for dynamic target interception task allocation
 - Wind Gust Compensation (Dryden turbulence) & 3D APF Obstacle Avoidance
 """
 
@@ -408,7 +408,7 @@ class HeterogeneousSwarmAgent:
                 self.last_cognitive_tick = sim_time
                 return dispatched_cmd
 
-        # 4. Distributed Consensus Auction (CBBA) for Target Shadowing
+        # 4. Distributed Utility Auction for Target Shadowing
         if self.role not in [AIRole.BASE_RECOVERY, AIRole.COMMS_ANCHOR, AIRole.RELIEF_PATROL]:
             for t_id, belief in self.gossip.target_beliefs.items():
                 task_key = f"shadow_hvt_{t_id}"
@@ -428,7 +428,7 @@ class HeterogeneousSwarmAgent:
                         dispatched_cmd = self.recon_fly_to(
                             x=belief.position[0], y=belief.position[1], z=self.specs.cruise_altitude,
                             velocity_limit=self.specs.max_speed, sim_time=sim_time,
-                            reasoning=f"Won CBBA auction for HVT-{t_id} (utility={utility:.1f}); initiating rapid intercept vector",
+                            reasoning=f"Won Distributed Utility Auction for HVT-{t_id} (utility={utility:.1f}); initiating rapid intercept vector",
                         )
                         self.last_cognitive_tick = sim_time
                         return dispatched_cmd

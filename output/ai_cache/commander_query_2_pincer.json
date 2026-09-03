@@ -1,0 +1,12 @@
+{
+  "model": "deepseek-v4-flash",
+  "latency_s": 7.26,
+  "directive": {
+    "strategic_posture": "COORDINATED_SWEEP",
+    "reasoning_chain": "Deterministic rule-based baseline: establishing perimeter search pattern.",
+    "tactical_radio_broadcast": "Falcon-Lead: Area sweep initiated. All elements maintain mesh spacing.",
+    "token_usage": {}
+  },
+  "is_fallback": true,
+  "api_called": true
+}

@@ -49,3 +49,5 @@ Thumbs.db
 output/*.mp4
 output/*.csv
 
+# MuJoCo Logs
+MUJOCO_LOG.TXT

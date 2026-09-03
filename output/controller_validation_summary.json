@@ -1,0 +1,172 @@
+{
+  "airframes": {
+    "Heavy Scout (Falcon-0)": {
+      "drone_id": 0,
+      "drone_class": "HEAVY_SCOUT",
+      "hover_recovery": {
+        "settling_time_s": 1.49,
+        "final_rmse_m": 0.0815,
+        "max_overshoot_m": 1.517,
+        "saturation_pct": 4.5,
+        "passed": true
+      },
+      "step_response": {
+        "rise_time_s": 0.94,
+        "max_speed_mps": 6.05,
+        "final_error_m": 0.047
+      },
+      "orbit_tracking": {
+        "cross_track_rmse_m": 0.4876,
+        "passed": false
+      },
+      "turbulence_rejection": {
+        "moderate_3mps": {
+          "mean_deviation_m": 0.002,
+          "std_deviation_m": 0.001,
+          "max_deviation_m": 0.005,
+          "gust_rms_mps": 0.46
+        },
+        "severe_7mps": {
+          "mean_deviation_m": 0.009,
+          "std_deviation_m": 0.007,
+          "max_deviation_m": 0.028,
+          "gust_rms_mps": 1.08
+        }
+      },
+      "actuator_saturation": {
+        "saturation_pct": 100.0,
+        "max_motor_thrust_n": 3.6,
+        "max_allowed_thrust_n": 3.6,
+        "thrust_within_bounds": true,
+        "max_speed_achieved_mps": 12.0,
+        "speed_within_bounds": true
+      }
+    },
+    "Fast Interceptor (Falcon-1)": {
+      "drone_id": 1,
+      "drone_class": "FAST_INTERCEPTOR",
+      "hover_recovery": {
+        "settling_time_s": 1.49,
+        "final_rmse_m": 0.0816,
+        "max_overshoot_m": 1.517,
+        "saturation_pct": 0.2,
+        "passed": true
+      },
+      "step_response": {
+        "rise_time_s": 0.89,
+        "max_speed_mps": 6.27,
+        "final_error_m": 0.01
+      },
+      "orbit_tracking": {
+        "cross_track_rmse_m": 0.4875,
+        "passed": false
+      },
+      "turbulence_rejection": {
+        "moderate_3mps": {
+          "mean_deviation_m": 0.002,
+          "std_deviation_m": 0.001,
+          "max_deviation_m": 0.005,
+          "gust_rms_mps": 0.46
+        },
+        "severe_7mps": {
+          "mean_deviation_m": 0.009,
+          "std_deviation_m": 0.007,
+          "max_deviation_m": 0.027,
+          "gust_rms_mps": 1.08
+        }
+      },
+      "actuator_saturation": {
+        "saturation_pct": 100.0,
+        "max_motor_thrust_n": 2.5,
+        "max_allowed_thrust_n": 2.5,
+        "thrust_within_bounds": true,
+        "max_speed_achieved_mps": 18.0,
+        "speed_within_bounds": true
+      }
+    },
+    "Thermal Surveyor (Falcon-2)": {
+      "drone_id": 2,
+      "drone_class": "THERMAL_SURVEYOR",
+      "hover_recovery": {
+        "settling_time_s": 1.49,
+        "final_rmse_m": 0.0816,
+        "max_overshoot_m": 1.517,
+        "saturation_pct": 3.8,
+        "passed": true
+      },
+      "step_response": {
+        "rise_time_s": 0.94,
+        "max_speed_mps": 6.05,
+        "final_error_m": 0.048
+      },
+      "orbit_tracking": {
+        "cross_track_rmse_m": 0.4874,
+        "passed": false
+      },
+      "turbulence_rejection": {
+        "moderate_3mps": {
+          "mean_deviation_m": 0.002,
+          "std_deviation_m": 0.001,
+          "max_deviation_m": 0.005,
+          "gust_rms_mps": 0.46
+        },
+        "severe_7mps": {
+          "mean_deviation_m": 0.009,
+          "std_deviation_m": 0.007,
+          "max_deviation_m": 0.026,
+          "gust_rms_mps": 1.08
+        }
+      },
+      "actuator_saturation": {
+        "saturation_pct": 100.0,
+        "max_motor_thrust_n": 2.6,
+        "max_allowed_thrust_n": 2.6,
+        "thrust_within_bounds": true,
+        "max_speed_achieved_mps": 14.0,
+        "speed_within_bounds": true
+      }
+    },
+    "Comms Relay (Falcon-3)": {
+      "drone_id": 3,
+      "drone_class": "COMMS_RELAY",
+      "hover_recovery": {
+        "settling_time_s": 1.49,
+        "final_rmse_m": 0.0834,
+        "max_overshoot_m": 1.54,
+        "saturation_pct": 6.0,
+        "passed": true
+      },
+      "step_response": {
+        "rise_time_s": 1.03,
+        "max_speed_mps": 5.59,
+        "final_error_m": 0.127
+      },
+      "orbit_tracking": {
+        "cross_track_rmse_m": 0.4874,
+        "passed": false
+      },
+      "turbulence_rejection": {
+        "moderate_3mps": {
+          "mean_deviation_m": 0.002,
+          "std_deviation_m": 0.001,
+          "max_deviation_m": 0.005,
+          "gust_rms_mps": 0.46
+        },
+        "severe_7mps": {
+          "mean_deviation_m": 0.009,
+          "std_deviation_m": 0.007,
+          "max_deviation_m": 0.026,
+          "gust_rms_mps": 1.08
+        }
+      },
+      "actuator_saturation": {
+        "saturation_pct": 100.0,
+        "max_motor_thrust_n": 2.583,
+        "max_allowed_thrust_n": 2.6,
+        "thrust_within_bounds": true,
+        "max_speed_achieved_mps": 8.0,
+        "speed_within_bounds": true
+      }
+    }
+  }
+}

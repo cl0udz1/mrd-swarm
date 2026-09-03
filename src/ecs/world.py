@@ -36,7 +36,7 @@ from ..ai_vision_recon import DeepSeekVisionRecon
 
 class ECSWorld:
     """
-    Main Data-Oriented Entity Component System World with Black Box Recording.
+    ECS-inspired modular simulation architecture with Black Box Flight Data Recording.
     """
 
     def __init__(self, obstacles: List[Dict[str, Any]], seed: int = 42):
@@ -56,6 +56,12 @@ class ECSWorld:
         self.recorder = FlightDataRecorder(max_buffer_size=60000)
         self.mission_mgr = MissionStateManager(n_targets=3, cruise_altitude=1.0)
         self.target_tracker = KalmanTargetTracker(n_targets=3)
+
+        # Perception & Detection Canonical Metrics
+        self.total_detection_events: int = 0
+        self.total_visible_target_frames: int = 0
+        self.unique_targets_detected: Set[int] = set()
+        self.confirmed_track_events: int = 0
 
         # DeepSeek AI Cognitive Layer (Async LLM Tactical Commander & Vision Recon)
         self.ai_commander = DeepSeekSwarmCommander()
@@ -255,8 +261,9 @@ class ECSWorld:
                 if abs(angle_to_b) < math.radians(45.0):
                     scr_x = 128 + int(angle_to_b / math.radians(45.0) * 128)
                     scale = 60.0 / max(dist, 3.0)
-                    w = int(obs["size"][0] * scale * 3.5)
-                    h = int(obs["height"] * scale * 3.5)
+                    w = int(obs.get("size", [3.0, 3.0, 4.0])[0] * scale * 3.5)
+                    obs_h = obs.get("height", obs.get("size", [3.0, 3.0, 4.0])[2] if len(obs.get("size", [])) > 2 else 4.0)
+                    h = int(obs_h * scale * 3.5)
                     top = max(10, 180 - h)
                     draw.rectangle([scr_x - w//2, top, scr_x + w//2, 180], fill=(55, 65, 78), outline=(85, 100, 120))
 
@@ -302,7 +309,15 @@ class ECSWorld:
             targets=self.targets,
             los_sensor=self.los_sensor,
             uncertainty_grid=self.uncertainty_grid,
+            rng=self.rng,
         )
+        if self.detected_target_ids:
+            self.total_detection_events += len(self.detected_target_ids)
+            self.unique_targets_detected.update(self.detected_target_ids)
+        frame_vis_pairs = sum(len(s.visible_targets) for s in self.sensors.values())
+        self.total_visible_target_frames += frame_vis_pairs
+        confirmed_ids = self.target_tracker.get_confirmed_ids()
+        self.confirmed_track_events += len(confirmed_ids)
 
         # 3. Evasion System
         evasion_system(
@@ -483,6 +498,20 @@ class ECSWorld:
                     "smoke_active": self.targets[tid].smoke_active,
                 }
                 for tid in self.targets
+            },
+            "perception": {
+                "detected_targets": sorted(list(self.detected_target_ids)),
+                "num_detected": len(self.detected_target_ids),
+                "visible_target_pairs": frame_vis_pairs,
+                "drone_detections": {
+                    did: list(s.visible_targets.keys()) for did, s in self.sensors.items()
+                },
+                "total_detection_events": self.total_detection_events,
+                "total_visible_target_frames": self.total_visible_target_frames,
+                "unique_targets_detected": sorted(list(self.unique_targets_detected)),
+                "confirmed_track_events": self.confirmed_track_events,
+                "mean_uncertainty_pct": round(uncertainty_pct, 2),
+                "coverage_pct": round(float(self.uncertainty_grid.get_coverage_pct()), 2),
             },
             "rf_mesh": {
                 "active_links": self.active_links,

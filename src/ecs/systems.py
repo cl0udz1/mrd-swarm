@@ -121,6 +121,7 @@ def perception_system(
     targets: Dict[int, TargetEntityComponent],
     los_sensor: LineOfSightSensor,
     uncertainty_grid: VoxelUncertaintyGrid,
+    rng: Optional[Any] = None,
 ) -> Set[int]:
     """Evaluates optical/thermal line of sight with 3D buildings and smoke screen attenuation."""
     all_spotted_targets: Set[int] = set()
@@ -169,7 +170,10 @@ def perception_system(
                 # Synthetic noisy measurement generation (range-dependent noise)
                 dist = float(np.linalg.norm(trans.position[:2] - t_trans.position[:2]))
                 sigma_pos = max(0.20, dist * 0.035)  # min 20cm, 3.5% of range
-                noise = np.random.normal(0.0, sigma_pos, size=2)
+                if rng is not None:
+                    noise = rng.normal(0.0, sigma_pos, size=2)
+                else:
+                    noise = np.random.normal(0.0, sigma_pos, size=2)
                 noisy_pos = t_trans.position[:2] + noise
                 cov_r = np.eye(2, dtype=np.float64) * (sigma_pos ** 2)
                 if hasattr(sensor, "noisy_measurements"):
@@ -634,7 +638,7 @@ def brain_decision_system(
     if len(target_scores) > 0 and len(combat_drones_for_hunt) > 0:
         primary_tid, primary_score, primary_track = target_scores[0]
 
-        # Get target state (use EKF predicted pos if available, else transform)
+        # Get target state (use Kalman predicted pos if available, else transform)
         p_tgt_2d = tracker.get_predicted_position(primary_tid)
         v_tgt_2d = tracker.get_predicted_velocity(primary_tid)
         if p_tgt_2d is None and primary_tid in target_transforms:

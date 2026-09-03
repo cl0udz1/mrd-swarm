@@ -1,0 +1,94 @@
+{
+  "timestamp": 1788409027.7523584,
+  "scenarios": {
+    "SCENARIO_A_OPEN_FIELD": {
+      "scenario_id": "SCENARIO_A_OPEN_FIELD",
+      "name": "Scenario A: Open Field",
+      "steps_executed": 500,
+      "simulated_time_s": 5.0,
+      "wall_time_s": 1.376,
+      "nan_detected": false,
+      "inf_detected": false,
+      "final_uncertainty_pct": 8.2,
+      "total_detection_events": 395,
+      "total_visible_target_frames": 444,
+      "unique_targets_detected": [
+        0,
+        1
+      ],
+      "active_mesh_links_final": 4,
+      "passed": true
+    },
+    "SCENARIO_B_SPARSE_URBAN": {
+      "scenario_id": "SCENARIO_B_SPARSE_URBAN",
+      "name": "Scenario B: Sparse Urban",
+      "steps_executed": 500,
+      "simulated_time_s": 5.0,
+      "wall_time_s": 2.145,
+      "nan_detected": false,
+      "inf_detected": false,
+      "final_uncertainty_pct": 13.0,
+      "total_detection_events": 68,
+      "total_visible_target_frames": 69,
+      "unique_targets_detected": [
+        0,
+        1
+      ],
+      "active_mesh_links_final": 2,
+      "passed": true
+    },
+    "SCENARIO_C_DENSE_URBAN": {
+      "scenario_id": "SCENARIO_C_DENSE_URBAN",
+      "name": "Scenario C: Dense Urban",
+      "steps_executed": 500,
+      "simulated_time_s": 5.0,
+      "wall_time_s": 2.966,
+      "nan_detected": false,
+      "inf_detected": false,
+      "final_uncertainty_pct": 24.8,
+      "total_detection_events": 23,
+      "total_visible_target_frames": 23,
+      "unique_targets_detected": [
+        0
+      ],
+      "active_mesh_links_final": 2,
+      "passed": true
+    },
+    "SCENARIO_D_COMMS_STRESS": {
+      "scenario_id": "SCENARIO_D_COMMS_STRESS",
+      "name": "Scenario D: Comms Stress",
+      "steps_executed": 500,
+      "simulated_time_s": 5.0,
+      "wall_time_s": 3.398,
+      "nan_detected": false,
+      "inf_detected": false,
+      "final_uncertainty_pct": 24.8,
+      "total_detection_events": 23,
+      "total_visible_target_frames": 23,
+      "unique_targets_detected": [
+        0
+      ],
+      "active_mesh_links_final": 2,
+      "passed": true
+    },
+    "SCENARIO_E_SENSOR_STRESS": {
+      "scenario_id": "SCENARIO_E_SENSOR_STRESS",
+      "name": "Scenario E: Sensor Stress",
+      "steps_executed": 500,
+      "simulated_time_s": 5.0,
+      "wall_time_s": 3.017,
+      "nan_detected": false,
+      "inf_detected": false,
+      "final_uncertainty_pct": 29.2,
+      "total_detection_events": 84,
+      "total_visible_target_frames": 84,
+      "unique_targets_detected": [
+        0,
+        1
+      ],
+      "active_mesh_links_final": 2,
+      "passed": true
+    }
+  },
+  "all_passed": true
+}

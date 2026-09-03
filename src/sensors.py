@@ -31,14 +31,19 @@ class NoisyTargetMeasurement:
     Produced by onboard sensors with realistic noise, dropout, and latency.
     """
     target_id: int
-    measured_pos_2d: NDArray[np.float64]  # [x, y] in world coordinates with additive noise
-    range_m: float                        # Measured distance to target (m)
-    bearing_rad: float                    # Measured relative bearing (rad)
-    confidence: float                     # Observation confidence in [0, 1]
-    timestamp: float                      # Simulation timestamp (s)
-    drone_id: int                         # Detecting drone ID
-    is_thermal: bool                      # Sighting made via thermal IR
-    covariance_r: NDArray[np.float64]     # 2x2 measurement noise covariance matrix R
+    measured_pos_2d: NDArray[np.float64] = field(default_factory=lambda: np.zeros(2, dtype=np.float64))
+    range_m: float = 0.0
+    bearing_rad: float = 0.0
+    confidence: float = 1.0
+    timestamp: float = 0.0
+    drone_id: int = 0
+    is_thermal: bool = False
+    covariance_r: NDArray[np.float64] = field(default_factory=lambda: np.eye(2, dtype=np.float64))
+    position_estimate: Optional[NDArray[np.float64]] = None
+
+    def __post_init__(self):
+        if self.position_estimate is not None and np.all(self.measured_pos_2d == 0.0):
+            object.__setattr__(self, "measured_pos_2d", np.asarray(self.position_estimate[:2], dtype=np.float64))
 
 
 @dataclass
@@ -187,12 +192,26 @@ class BatteryModel:
     Calculates power draw from avionics, sensor payload, and aerodynamic thrust demand.
     """
 
-    def __init__(self, airframe: AirframeConfig):
-        self.airframe = airframe
-        self.capacity_wh = airframe.battery_capacity_wh
-        self.initial_capacity_wh = airframe.battery_capacity_wh
-        self.remaining_wh = airframe.battery_capacity_wh
-        self.voltage = airframe.battery_nominal_voltage_v
+    def __init__(self, airframe_or_capacity: Any = 25.0, nominal_voltage_v: float = 14.8):
+        if isinstance(airframe_or_capacity, AirframeConfig):
+            self.airframe = airframe_or_capacity
+            cap = airframe_or_capacity.battery_capacity_wh
+            v = airframe_or_capacity.battery_nominal_voltage_v
+        elif isinstance(airframe_or_capacity, (int, float)):
+            from .config.airframes import FLEET_CONFIGS
+            self.airframe = FLEET_CONFIGS[0]
+            cap = float(airframe_or_capacity)
+            v = float(nominal_voltage_v)
+        else:
+            from .config.airframes import FLEET_CONFIGS
+            self.airframe = FLEET_CONFIGS[0]
+            cap = 25.0
+            v = 14.8
+
+        self.capacity_wh = cap
+        self.initial_capacity_wh = cap
+        self.remaining_wh = cap
+        self.voltage = v
         self.total_energy_consumed_wh = 0.0
 
     def step(self, total_thrust_n: float, dt: float) -> float:
@@ -236,16 +255,31 @@ class TargetObservation:
     bearing: float = 0.0
     confidence: float = 0.0
     in_fov: bool = False
+    position_estimate: Optional[NDArray[np.float64]] = None
+    timestamp: float = 0.0
+    drone_id: int = 0
+    is_thermal: bool = False
 
 
 @dataclass
 class BatteryState:
     """Battery telemetry (legacy compatibility)."""
-    capacity_wh: float
-    percentage: float
-    voltage: float
-    is_critical: bool
+    capacity_wh: float = 25.0
+    percentage: float = 100.0
+    voltage: float = 14.8
+    is_critical: bool = False
     total_energy_consumed_wh: float = 0.0
+    remaining_wh: float = 25.0
+    soc_pct: float = 100.0
+    total_consumed_wh: Optional[float] = None
+
+    def __post_init__(self):
+        if self.total_consumed_wh is not None and self.total_energy_consumed_wh == 0.0:
+            object.__setattr__(self, "total_energy_consumed_wh", self.total_consumed_wh)
+        if self.soc_pct == 100.0 and self.percentage != 100.0:
+            object.__setattr__(self, "soc_pct", self.percentage)
+        elif self.percentage == 100.0 and self.soc_pct != 100.0:
+            object.__setattr__(self, "percentage", self.soc_pct)
 
 
 class SensorSuite:

@@ -23,7 +23,9 @@ from src.ecs.world import ECSWorld
 from src.eval_suite import SwarmMissionEvaluator
 
 OUTPUT_DIR = PROJECT_DIR / "output"
+FIGURES_DIR = PROJECT_DIR / "media" / "figures"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run_benchmark(duration_s: float = 60.0):
@@ -108,6 +110,7 @@ def generate_all_plots(records, metrics):
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "eval_3d_trajectories.png")
+    fig.savefig(FIGURES_DIR / "eval_3d_trajectories.png")
     plt.close(fig)
 
     # ── Figure 2: Kinematic Velocities & Tracking Errors ───────────────────────
@@ -153,6 +156,7 @@ def generate_all_plots(records, metrics):
     fig.suptitle("Figure 2: Multi-Agent Kinematics & Tracking Error Profiles", fontsize=14, fontweight="bold")
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "eval_kinematics_tracking.png")
+    fig.savefig(FIGURES_DIR / "eval_kinematics_tracking.png")
     plt.close(fig)
 
     # ── Figure 3: Epistemic Uncertainty Decay ──────────────────────────────────
@@ -172,6 +176,7 @@ def generate_all_plots(records, metrics):
     ax.legend()
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "eval_uncertainty_decay.png")
+    fig.savefig(FIGURES_DIR / "eval_uncertainty_decay.png")
     plt.close(fig)
 
     # ── Figure 4: Network Topology & Fiedler Value ─────────────────────────────
@@ -196,6 +201,7 @@ def generate_all_plots(records, metrics):
     fig.suptitle("Figure 4: RF Mesh Topology & Graph Algebraic Connectivity Resilience", fontsize=12, fontweight="bold")
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "eval_mesh_connectivity.png")
+    fig.savefig(FIGURES_DIR / "eval_mesh_connectivity.png")
     plt.close(fig)
 
     # ── Figure 5: Target Interception & Pincer Geometry ────────────────────────
@@ -216,6 +222,7 @@ def generate_all_plots(records, metrics):
     ax.legend()
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "eval_target_interception.png")
+    fig.savefig(FIGURES_DIR / "eval_target_interception.png")
     plt.close(fig)
 
 

@@ -113,6 +113,38 @@ def test_dryden_turbulence_model():
     assert np.all(np.abs(arr_a1) < 15.0)
 
 
+def test_dryden_statistics_and_sensitivity():
+    """Verify Dryden turbulence zero-mean property, RMS intensity, and wind speed sensitivity."""
+    dt = 0.01
+    model_low = DrydenTurbulenceModel(dt=dt, altitude_m=10.0, wind_speed_20m=2.0, seed=123)
+    model_high = DrydenTurbulenceModel(dt=dt, altitude_m=10.0, wind_speed_20m=6.0, seed=123)
+
+    # 1. Approximately zero mean (ensemble mean across 8 independent seeds < 0.15 m/s)
+    ensemble_means = []
+    for s in range(8):
+        m = DrydenTurbulenceModel(dt=dt, altitude_m=10.0, wind_speed_20m=2.0, seed=s + 10)
+        pts = np.array([m.step() for _ in range(2500)])
+        ensemble_means.append(np.mean(pts, axis=0))
+    grand_mean = np.mean(ensemble_means, axis=0)
+    assert np.all(np.abs(grand_mean) < 0.15)
+
+    # 2. RMS / Variance sensitivity: 6 m/s wind must have strictly higher RMS than 2 m/s wind
+    samples_low = np.array([model_low.step() for _ in range(4000)])
+    samples_high = np.array([model_high.step() for _ in range(4000)])
+    rms_low = np.std(samples_low, axis=0)
+    rms_high = np.std(samples_high, axis=0)
+    assert np.all(rms_high > 1.8 * rms_low)
+
+    # 3. Spectral PSD calculation
+    freqs = np.linspace(0.01, 10.0, 50)
+    psd = model_low.compute_theoretical_psd(freqs)
+    assert np.all(psd["phi_u"] > 0.0)
+    assert np.all(psd["phi_v"] > 0.0)
+    assert np.all(psd["phi_w"] > 0.0)
+    # Monotonic drop-off at high frequency: phi(10 Hz) < phi(0.1 Hz)
+    assert psd["phi_u"][-1] < psd["phi_u"][0]
+
+
 def test_synthetic_periodic_wind():
     """Verify deterministic periodic disturbance returns expected dimensions."""
     wind = SyntheticPeriodicWindDisturbance()
@@ -120,3 +152,4 @@ def test_synthetic_periodic_wind():
     assert w0.shape == (3,)
     w10 = wind.get_wind(10.0)
     assert not np.allclose(w0, w10)
+

@@ -109,3 +109,29 @@ def test_synthetic_sensor_smoke_and_noise():
     assert meas_eo_smoke is None          # Optical completely blinded by smoke aerosol
     assert meas_flir_smoke is not None     # Thermal IR penetrates smoke successfully
     assert meas_flir_smoke.is_thermal is True
+
+
+def test_controlled_target_visibility_increments_detection_metrics():
+    """Verify that a target placed directly in drone FOV increments all canonical detection metrics."""
+    from src.ecs.world import ECSWorld
+    world = ECSWorld(obstacles=[], seed=123)
+    world.ai_commander.enabled = False
+    world.vision_recon.enabled = False
+
+    # Force Drone 0 right in front of Target 0 (unobstructed)
+    world.drone_transforms[0].position = np.array([12.0, -8.0, 3.0])
+    world.drone_transforms[0].quaternion = np.array([1.0, 0.0, 0.0, 0.0])
+    world.target_transforms[0].position = np.array([15.0, -8.0, 0.3])
+
+    initial_events = world.total_detection_events
+    initial_frames = world.total_visible_target_frames
+
+    telem = world.step()
+
+    p_data = telem["perception"]
+    assert 0 in p_data["detected_targets"]
+    assert p_data["num_detected"] >= 1
+    assert p_data["total_detection_events"] > initial_events
+    assert p_data["total_visible_target_frames"] > initial_frames
+    assert 0 in p_data["unique_targets_detected"]
+

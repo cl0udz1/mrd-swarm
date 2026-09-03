@@ -106,6 +106,7 @@ class DeepSeekVisionRecon:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         min_interval_s: float = 4.0,
+        enabled: Optional[bool] = None,
     ):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", DEFAULT_API_KEY)
         self.base_url = (base_url or os.environ.get("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
@@ -117,7 +118,10 @@ class DeepSeekVisionRecon:
         self._is_in_flight = False
         self._last_query_time = 0.0
 
-        self.enabled = bool(self.api_key and self.api_key.startswith("sk-"))
+        if enabled is not None:
+            self.enabled = enabled
+        else:
+            self.enabled = os.environ.get("ENABLE_REMOTE_AI", "0") in ("1", "true", "True") and bool(self.api_key and self.api_key.startswith("sk-"))
 
         self._set_default_card()
 

@@ -32,10 +32,10 @@ from .physics import (
 @dataclass
 class ControllerGains:
     """Tunable feedback gains for position and attitude loops."""
-    kp_pos: float = 4.5       # Position error gain [s^-2]
-    kv_vel: float = 3.2       # Velocity error gain [s^-1]
-    kr_att: float = 8.0       # Attitude SO(3) gain [N·m/rad]
-    kw_rate: float = 2.5      # Angular rate damping gain [N·m·s/rad]
+    kp_pos: float = 4.0       # Position error gain [s^-2]
+    kv_vel: float = 3.0       # Velocity error gain [s^-1]
+    kr_att: float = 1.2       # Attitude SO(3) gain [N·m/rad]
+    kw_rate: float = 0.35     # Angular rate damping gain [N·m·s/rad]
 
 
 @dataclass
@@ -62,7 +62,16 @@ class GeometricSE3Controller:
         gains: Optional[ControllerGains] = None,
     ):
         self.airframe = airframe
-        self.gains = gains or ControllerGains()
+        if gains is not None:
+            self.gains = gains
+        else:
+            scale = max(0.2, self.airframe.inertia_ixx / 1.8e-3)
+            self.gains = ControllerGains(
+                kp_pos=4.0,
+                kv_vel=3.0,
+                kr_att=1.2 * scale,
+                kw_rate=0.35 * scale,
+            )
 
         # Telemetry metrics
         self.total_control_steps = 0
@@ -101,6 +110,7 @@ class GeometricSE3Controller:
         # Desired force vector and commanded total thrust
         f_des = self.airframe.mass_kg * a_des
         f_norm = float(np.linalg.norm(f_des))
+        self._thrust_saturated = (f_norm > self.airframe.max_total_thrust_n)
         total_thrust = float(np.clip(
             f_norm,
             0.1 * self.airframe.weight_n,
@@ -152,6 +162,7 @@ class GeometricSE3Controller:
 
         # ── 4. Rotor Allocation & Actuator Saturation ─────────────────────────
         motor_thrusts, is_saturated = solve_motor_thrusts(total_thrust, tau_cmd, self.airframe)
+        is_saturated = is_saturated or getattr(self, "_thrust_saturated", False)
         if is_saturated:
             self.saturation_count += 1
 
@@ -184,8 +195,19 @@ class CascadedQuadrotorController:
                 best_cfg = cfg
         self.controller = GeometricSE3Controller(airframe=best_cfg, gains=gains)
 
+    @property
+    def airframe(self):
+        return self.controller.airframe
+
+    @property
+    def mass(self):
+        return self.controller.airframe.mass_kg
+
     def compute_control(self, *args, **kwargs):
         return self.controller.compute_control(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self.controller, name)
 
 
 class TrajectoryGenerator:

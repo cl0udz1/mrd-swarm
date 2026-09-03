@@ -1,0 +1,24 @@
+{
+  "model": "deepseek-v4-flash",
+  "latency_s": 2.82,
+  "directive": {
+    "strategic_posture": "COORDINATED_SWEEP",
+    "reasoning_chain": "We need to output JSON. Mission phase SEARCH, uncertainty 100%, no targets or threats listed, smoke not active, no EW jamming. All drones are explorers except D3 comms anchor. No target info. Need strategic posture and assignments. Since no targets, target_priority empty. Drone assignments: D0 explorer, D1 explorer/flanker? No target. D2 surveyor/explorer. D3 relay. Need desired speeds and tactics. Strategic posture: COORDINATED_SWEEP likely. Output valid JSON.",
+    "tactical_radio_broadcast": "All units, coordinate sweep. Maintain mesh. Await targets.",
+    "token_usage": {
+      "prompt_tokens": 880,
+      "completion_tokens": 362,
+      "total_tokens": 1242,
+      "prompt_tokens_details": {
+        "cached_tokens": 512
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 111
+      },
+      "prompt_cache_hit_tokens": 512,
+      "prompt_cache_miss_tokens": 368
+    }
+  },
+  "is_fallback": false,
+  "api_called": true
+}

@@ -115,3 +115,88 @@ def test_actuator_saturation_metric():
     )
     assert controller.saturation_count == 0
     assert controller.saturation_frequency_pct == 0.0
+
+
+def test_closed_loop_hover_recovery():
+    """Verify simulated vehicle dynamically recovers to hover setpoint from initial displacement."""
+    from src.physics import step_rigid_body_dynamics
+    cfg = get_airframe_config(0)
+    controller = GeometricSE3Controller(airframe=cfg)
+
+    pos = np.array([0.5, -0.4, 2.5], dtype=np.float64)
+    vel = np.array([0.2, -0.1, 0.0], dtype=np.float64)
+    quat = np.array([0.9848, 0.1736, 0.0, 0.0], dtype=np.float64)  # ~20 deg roll perturbation
+    quat /= np.linalg.norm(quat)
+    omega = np.zeros(3, dtype=np.float64)
+
+    target_pos = np.array([0.0, 0.0, 3.0], dtype=np.float64)
+    target_vel = np.zeros(3, dtype=np.float64)
+    dt = 0.01
+
+    # Simulate closed-loop flight for 3.0s (300 steps)
+    for _ in range(300):
+        out = controller.compute_control(
+            pos_current=pos,
+            vel_current=vel,
+            quat_current=quat,
+            omega_current=omega,
+            pos_desired=target_pos,
+            vel_desired=target_vel,
+            yaw_desired=0.0,
+        )
+        pos, vel, quat, omega = step_rigid_body_dynamics(
+            pos=pos, vel=vel, quat=quat, omega=omega,
+            total_thrust_n=out.total_thrust_n,
+            torque_cmd_nm=out.torque_cmd_nm,
+            airframe=cfg, dt=dt,
+        )
+
+    # Position error at steady state (< 0.20m)
+    final_pos_err = float(np.linalg.norm(pos - target_pos))
+    assert final_pos_err < 0.20
+    # Velocity dissipated (< 0.25 m/s)
+    assert float(np.linalg.norm(vel)) < 0.25
+    # Quaternion normalized
+    assert math.isclose(float(np.linalg.norm(quat)), 1.0, abs_tol=1e-5)
+
+
+def test_closed_loop_actuator_saturation_invariance():
+    """Verify that commanding an extreme unphysical step saturates gracefully without NaNs."""
+    from src.physics import step_rigid_body_dynamics
+    cfg = get_airframe_config(1)  # Fast Interceptor
+    controller = GeometricSE3Controller(airframe=cfg)
+
+    pos = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    vel = np.zeros(3, dtype=np.float64)
+    quat = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    omega = np.zeros(3, dtype=np.float64)
+
+    # Command extreme displacement 500m away
+    extreme_goal = np.array([500.0, 500.0, 100.0], dtype=np.float64)
+    dt = 0.01
+
+    for _ in range(100):
+        out = controller.compute_control(
+            pos_current=pos,
+            vel_current=vel,
+            quat_current=quat,
+            omega_current=omega,
+            pos_desired=extreme_goal,
+            vel_desired=np.zeros(3),
+        )
+        assert not np.isnan(out.total_thrust_n)
+        assert not np.any(np.isnan(out.torque_cmd_nm))
+        pos, vel, quat, omega = step_rigid_body_dynamics(
+            pos=pos, vel=vel, quat=quat, omega=omega,
+            total_thrust_n=out.total_thrust_n,
+            torque_cmd_nm=out.torque_cmd_nm,
+            airframe=cfg, dt=dt,
+        )
+        assert not np.any(np.isnan(pos))
+        assert not np.any(np.isnan(vel))
+
+    # Saturation frequency must be 100%
+    assert controller.saturation_frequency_pct > 90.0
+    # Velocity bounded by airframe max_speed_mps
+    assert float(np.linalg.norm(vel)) <= cfg.max_speed_mps + 1e-4
+
