@@ -1,59 +1,63 @@
 # -*- coding: utf-8 -*-
 """
-target_tracker.py — Extended Kalman Filter (EKF) Target Track Persistence
+target_tracker.py — Discrete Linear Kalman Filter (KF) Target Track Persistence
 
-Maintains predicted tracks for ground targets even when Line-of-Sight (LOS)
-is temporarily broken (e.g., target passes behind buildings).
+Maintains state estimates for ground targets:
+    State:       x = [px, py, vx, vy]^T  (2D constant-velocity kinematic model)
+    Measurement: z = [px_meas, py_meas]^T (Noisy synthetic observation with covariance R)
 
-State vector: x = [px, py, vx, vy]^T  (constant-velocity model)
-Measurement:  z = [px, py]^T           (position from sensor)
-
-Track states:
-    CONFIRMED  — recent measurement update (< 2s ago)
-    PREDICTED  — no update for 2–8s, running on prediction only
-    LOST       — no update for > 8s, track is stale
+Provides:
+- Joseph-stabilized covariance update: P = (I - KH)P(I - KH)^T + KRK^T
+- Track lifecycle: UNINITIALIZED → CONFIRMED → PREDICTED → LOST
+- Online estimation quality tracking: Position RMSE, Velocity RMSE, and NEES against ground truth
 """
 
 from __future__ import annotations
 from enum import IntEnum
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, List
 import numpy as np
+from numpy.typing import NDArray
 
 
 class TrackState(IntEnum):
     UNINITIALIZED = 0
-    CONFIRMED = 1
-    PREDICTED = 2
-    LOST = 3
+    CONFIRMED = 1     # Recent noisy measurement received within 2.0s
+    PREDICTED = 2     # Running on Kalman dead-reckoning prediction (2.0s to 8.0s)
+    LOST = 3          # Unobserved for > 8.0s; track is stale
 
 
 @dataclass
 class TargetTrack:
-    """Single target track maintained by the EKF."""
+    """Belief state for an individual target maintained by the Kalman Filter."""
     target_id: int
     state: TrackState = TrackState.UNINITIALIZED
 
-    # EKF state vector [px, py, vx, vy]
-    x: np.ndarray = field(default_factory=lambda: np.zeros(4))
-    # Covariance matrix P (4x4)
-    P: np.ndarray = field(default_factory=lambda: np.eye(4) * 100.0)
+    # State vector [px, py, vx, vy]
+    x: NDArray[np.float64] = field(default_factory=lambda: np.zeros(4, dtype=np.float64))
+    # State covariance matrix P (4x4)
+    P: NDArray[np.float64] = field(default_factory=lambda: np.eye(4, dtype=np.float64) * 25.0)
 
-    # Timing
-    time_since_update: float = 0.0     # seconds since last measurement
-    total_track_time: float = 0.0      # total time this track has existed
-    n_updates: int = 0                 # number of measurement updates received
+    # Timing and update telemetry
+    time_since_update: float = 0.0
+    total_track_time: float = 0.0
+    n_updates: int = 0
 
-    # Thresholds
-    PREDICTED_THRESHOLD: float = 2.0   # seconds without update → PREDICTED
-    LOST_THRESHOLD: float = 8.0        # seconds without update → LOST
+    # Verification telemetry against ground truth (used strictly for evaluation)
+    estimation_errors_pos: List[float] = field(default_factory=list)
+    estimation_errors_vel: List[float] = field(default_factory=list)
+    nees_history: List[float] = field(default_factory=list)
+
+    # State thresholds
+    PREDICTED_THRESHOLD: float = 2.0
+    LOST_THRESHOLD: float = 8.0
 
     @property
-    def position(self) -> np.ndarray:
+    def position(self) -> NDArray[np.float64]:
         return self.x[:2].copy()
 
     @property
-    def velocity(self) -> np.ndarray:
+    def velocity(self) -> NDArray[np.float64]:
         return self.x[2:4].copy()
 
     @property
@@ -61,76 +65,76 @@ class TargetTrack:
         return float(np.linalg.norm(self.x[2:4]))
 
     @property
-    def position_uncertainty(self) -> float:
-        """RMS position uncertainty from covariance diagonal (meters)."""
-        return float(np.sqrt(self.P[0, 0] + self.P[1, 1]))
+    def position_uncertainty_m(self) -> float:
+        """RMS 1-sigma position uncertainty from covariance diagonal."""
+        return float(np.sqrt(max(0.0, self.P[0, 0] + self.P[1, 1])))
+
+    @property
+    def position_rmse(self) -> float:
+        """Root Mean Square Error against ground truth over track lifetime."""
+        if not self.estimation_errors_pos:
+            return 0.0
+        return float(np.sqrt(np.mean(np.array(self.estimation_errors_pos)**2)))
+
+    @property
+    def velocity_rmse(self) -> float:
+        """Velocity RMSE against ground truth."""
+        if not self.estimation_errors_vel:
+            return 0.0
+        return float(np.sqrt(np.mean(np.array(self.estimation_errors_vel)**2)))
 
 
-class EKFTargetTracker:
+class KalmanTargetTracker:
     """
-    Multi-target Extended Kalman Filter tracker.
-
-    Maintains one TargetTrack per known target ID. Handles:
-    - Prediction step (constant-velocity model) each simulation tick
-    - Measurement update when LOS sensor provides position data
-    - Track state management (CONFIRMED → PREDICTED → LOST)
-    - Predicted escape region computation for lost-target recovery
+    Multi-target Linear Kalman Filter (KF) tracker.
+    Operates strictly on noisy synthetic sensor observations (never ground truth).
     """
 
     def __init__(
         self,
         n_targets: int = 3,
-        process_noise_pos: float = 0.1,
-        process_noise_vel: float = 1.0,
-        measurement_noise: float = 0.5,
+        process_noise_accel: float = 0.8,     # continuous white noise spectral density q_w [m²/s³]
+        default_meas_noise: float = 0.6,      # default sensor noise std [m]
     ):
-        self.tracks: Dict[int, TargetTrack] = {}
         self.n_targets = n_targets
+        self.q_w = process_noise_accel
+        self.default_R = np.eye(2, dtype=np.float64) * (default_meas_noise ** 2)
 
-        # Process noise covariance Q
-        self.q_pos = process_noise_pos
-        self.q_vel = process_noise_vel
-
-        # Measurement noise covariance R (2x2)
-        self.R = np.eye(2) * measurement_noise**2
-
-        # Measurement matrix H (2x4): we observe [px, py]
+        # Measurement matrix H: maps [px, py, vx, vy] -> [px, py]
         self.H = np.array([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
         ], dtype=np.float64)
 
-        # Initialize tracks
-        for tid in range(n_targets):
-            self.tracks[tid] = TargetTrack(target_id=tid)
+        self.tracks: Dict[int, TargetTrack] = {
+            tid: TargetTrack(target_id=tid) for tid in range(n_targets)
+        }
 
-    def _build_F(self, dt: float) -> np.ndarray:
-        """State transition matrix for constant-velocity model."""
+    def _build_F(self, dt: float) -> NDArray[np.float64]:
+        """State transition matrix F for constant-velocity kinematics."""
         return np.array([
-            [1, 0, dt, 0],
-            [0, 1, 0, dt],
-            [0, 0, 1,  0],
-            [0, 0, 0,  1],
+            [1.0, 0.0, dt,  0.0],
+            [0.0, 1.0, 0.0, dt ],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ], dtype=np.float64)
 
-    def _build_Q(self, dt: float) -> np.ndarray:
-        """Process noise covariance (discrete-time piecewise constant white noise)."""
+    def _build_Q(self, dt: float) -> NDArray[np.float64]:
+        """Discrete process noise covariance Q for continuous white noise acceleration."""
         dt2 = dt * dt
         dt3 = dt2 * dt / 2.0
         dt4 = dt2 * dt2 / 4.0
-        qp = self.q_pos
-        qv = self.q_vel
+        q = self.q_w
         return np.array([
-            [qp * dt4, 0,        qp * dt3, 0       ],
-            [0,        qp * dt4, 0,        qp * dt3],
-            [qp * dt3, 0,        qv * dt2, 0       ],
-            [0,        qp * dt3, 0,        qv * dt2],
+            [q * dt4, 0.0,     q * dt3, 0.0    ],
+            [0.0,     q * dt4, 0.0,     q * dt3],
+            [q * dt3, 0.0,     q * dt2, 0.0    ],
+            [0.0,     q * dt3, 0.0,     q * dt2],
         ], dtype=np.float64)
 
     def predict(self, dt: float) -> None:
         """
-        Run EKF prediction step for all tracks.
-        Called once per simulation tick.
+        Advance Kalman Filter state prediction for all initialized tracks.
         """
         F = self._build_F(dt)
         Q = self._build_Q(dt)
@@ -139,117 +143,143 @@ class EKFTargetTracker:
             if track.state == TrackState.UNINITIALIZED:
                 continue
 
-            # State prediction
             track.x = F @ track.x
-            # Covariance prediction
             track.P = F @ track.P @ F.T + Q
 
-            # Update timing
             track.time_since_update += dt
             track.total_track_time += dt
 
-            # State transitions based on time since update
+            # Update lifecycle state
             if track.time_since_update > track.LOST_THRESHOLD:
                 track.state = TrackState.LOST
             elif track.time_since_update > track.PREDICTED_THRESHOLD:
                 track.state = TrackState.PREDICTED
 
-    def update(self, target_id: int, measured_position: np.ndarray) -> None:
+    def update(
+        self,
+        target_id: int,
+        measured_pos_2d: NDArray[np.float64],
+        covariance_r: Optional[NDArray[np.float64]] = None,
+    ) -> None:
         """
-        Run EKF measurement update for a specific target.
-
-        Parameters
-        ----------
-        target_id : int
-        measured_position : array (2,) — [px, py] from sensor
+        Incorporate noisy synthetic sensor observation z = [x_meas, y_meas]^T.
+        Uses Joseph-stabilized covariance update to guarantee positive semi-definiteness.
         """
         if target_id not in self.tracks:
-            return
+            self.tracks[target_id] = TargetTrack(target_id=target_id)
 
         track = self.tracks[target_id]
-        z = np.asarray(measured_position[:2], dtype=np.float64)
+        z = np.asarray(measured_pos_2d, dtype=np.float64)[:2]
+        R = covariance_r if covariance_r is not None else self.default_R
 
         if track.state == TrackState.UNINITIALIZED:
-            # First measurement: initialize state directly
-            track.x = np.array([z[0], z[1], 0.0, 0.0])
-            track.P = np.diag([1.0, 1.0, 5.0, 5.0])
+            # First initialization from observation
+            track.x = np.array([z[0], z[1], 0.0, 0.0], dtype=np.float64)
+            track.P = np.eye(4, dtype=np.float64) * 10.0
+            track.P[0, 0] = R[0, 0]
+            track.P[1, 1] = R[1, 1]
             track.state = TrackState.CONFIRMED
             track.time_since_update = 0.0
             track.n_updates = 1
             return
 
-        # Innovation (measurement residual)
+        # Kalman Innovation
         y = z - self.H @ track.x
+        S = self.H @ track.P @ self.H.T + R
+        S_inv = np.linalg.inv(S)
+        K = track.P @ self.H.T @ S_inv
 
-        # Innovation covariance
-        S = self.H @ track.P @ self.H.T + self.R
-
-        # Kalman gain
-        K = track.P @ self.H.T @ np.linalg.inv(S)
-
-        # State update
+        # State correction
         track.x = track.x + K @ y
 
-        # Covariance update (Joseph form for numerical stability)
-        I_KH = np.eye(4) - K @ self.H
-        track.P = I_KH @ track.P @ I_KH.T + K @ self.R @ K.T
+        # Joseph form: P = (I - KH) P (I - KH)^T + K R K^T
+        I4 = np.eye(4, dtype=np.float64)
+        I_KH = I4 - K @ self.H
+        track.P = I_KH @ track.P @ I_KH.T + K @ R @ K.T
 
-        # Reset timing and state
-        track.time_since_update = 0.0
         track.state = TrackState.CONFIRMED
+        track.time_since_update = 0.0
         track.n_updates += 1
 
-    def get_predicted_position(self, target_id: int) -> Optional[np.ndarray]:
-        """Get the current predicted 2D position for a target, or None if uninitialized."""
-        track = self.tracks.get(target_id)
-        if track is None or track.state == TrackState.UNINITIALIZED:
-            return None
-        return track.position
-
-    def get_predicted_velocity(self, target_id: int) -> Optional[np.ndarray]:
-        """Get the current predicted 2D velocity for a target."""
-        track = self.tracks.get(target_id)
-        if track is None or track.state == TrackState.UNINITIALIZED:
-            return None
-        return track.velocity
-
-    def get_escape_radius(self, target_id: int) -> float:
+    def record_ground_truth_for_evaluation(
+        self,
+        target_id: int,
+        true_pos_2d: NDArray[np.float64],
+        true_vel_2d: NDArray[np.float64],
+    ) -> Optional[Tuple[float, float, float]]:
         """
-        Compute predicted escape region radius for lost-target recovery.
-        r = v_target * t_age * 1.5 + position_uncertainty
+        Strictly for benchmark evaluation. Computes (pos_err, vel_err, nees).
+        NEVER affects the internal state of the filter.
         """
-        track = self.tracks.get(target_id)
-        if track is None:
-            return 10.0
-        speed = track.speed
-        t_age = track.time_since_update
-        return speed * t_age * 1.5 + track.position_uncertainty
+        if target_id not in self.tracks or self.tracks[target_id].state == TrackState.UNINITIALIZED:
+            return None
+
+        track = self.tracks[target_id]
+        x_true = np.array([true_pos_2d[0], true_pos_2d[1], true_vel_2d[0], true_vel_2d[1]], dtype=np.float64)
+        err = x_true - track.x
+
+        pos_err = float(np.linalg.norm(err[:2]))
+        vel_err = float(np.linalg.norm(err[2:4]))
+
+        try:
+            P_inv = np.linalg.inv(track.P)
+            nees = float(err.T @ P_inv @ err)
+        except np.linalg.LinAlgError:
+            nees = 0.0
+
+        track.estimation_errors_pos.append(pos_err)
+        track.estimation_errors_vel.append(vel_err)
+        track.nees_history.append(nees)
+
+        return pos_err, vel_err, nees
 
     def get_confirmed_ids(self) -> Set[int]:
-        """Return set of target IDs with CONFIRMED tracks."""
-        return {tid for tid, t in self.tracks.items() if t.state == TrackState.CONFIRMED}
+        return {tid for tid, tr in self.tracks.items() if tr.state == TrackState.CONFIRMED}
 
     def get_tracked_ids(self) -> Set[int]:
-        """Return set of target IDs with CONFIRMED or PREDICTED tracks."""
+        """All active tracks (CONFIRMED or PREDICTED)."""
         return {
-            tid for tid, t in self.tracks.items()
-            if t.state in (TrackState.CONFIRMED, TrackState.PREDICTED)
+            tid for tid, tr in self.tracks.items()
+            if tr.state in (TrackState.CONFIRMED, TrackState.PREDICTED)
         }
 
     def get_lost_ids(self) -> Set[int]:
-        """Return set of target IDs with LOST tracks."""
-        return {tid for tid, t in self.tracks.items() if t.state == TrackState.LOST}
+        return {tid for tid, tr in self.tracks.items() if tr.state == TrackState.LOST}
 
-    def get_telemetry(self) -> Dict:
-        """Return track states for telemetry broadcast."""
+    def get_predicted_position(self, target_id: int) -> Optional[NDArray[np.float64]]:
+        if target_id in self.tracks and self.tracks[target_id].state != TrackState.UNINITIALIZED:
+            return self.tracks[target_id].position
+        return None
+
+    def get_predicted_velocity(self, target_id: int) -> Optional[NDArray[np.float64]]:
+        if target_id in self.tracks and self.tracks[target_id].state != TrackState.UNINITIALIZED:
+            return self.tracks[target_id].velocity
+        return None
+
+    def get_escape_radius(self, target_id: int) -> float:
+        """Maximum possible distance target could have reached since last sighting."""
+        if target_id not in self.tracks:
+            return 5.0
+        tr = self.tracks[target_id]
+        spd = max(1.5, tr.speed)
+        return float(min(16.0, max(3.0, spd * tr.time_since_update)))
+
+    def get_telemetry(self) -> Dict[int, Dict[str, Any]]:
+        """Structured telemetry dictionary for logging and visualizer HUD."""
         return {
             tid: {
-                "state": track.state.name,
-                "pos": track.position.tolist() if track.state != TrackState.UNINITIALIZED else None,
-                "vel": track.velocity.tolist() if track.state != TrackState.UNINITIALIZED else None,
-                "age_s": round(track.time_since_update, 2),
-                "uncertainty_m": round(track.position_uncertainty, 2),
-                "n_updates": track.n_updates,
+                "state": tr.state.name,
+                "position": tr.position.tolist(),
+                "velocity": tr.velocity.tolist(),
+                "speed": round(tr.speed, 2),
+                "uncertainty_m": round(tr.position_uncertainty_m, 2),
+                "time_since_update": round(tr.time_since_update, 2),
+                "n_updates": tr.n_updates,
             }
-            for tid, track in self.tracks.items()
+            for tid, tr in self.tracks.items()
+            if tr.state != TrackState.UNINITIALIZED
         }
+
+
+# Backwards-compatible alias for existing codebase imports
+EKFTargetTracker = KalmanTargetTracker

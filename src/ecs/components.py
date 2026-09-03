@@ -66,6 +66,7 @@ class SensorComponent:
     camera_fov_deg: float          # degrees
     max_sensor_range: float        # meters
     visible_targets: Dict[int, float] = field(default_factory=dict)  # target_id -> confidence
+    noisy_measurements: Dict[int, Any] = field(default_factory=dict)  # target_id -> (noisy_pos_2d, cov_r, conf)
     optical_heading: float = 0.0   # rad
     has_thermal_ir: bool = False   # True for Drone 2 (can penetrate smoke)
 

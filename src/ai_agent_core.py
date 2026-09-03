@@ -69,55 +69,22 @@ class DroneSpecs:
     thrust_margin: float           # Max thrust / weight
 
 
+from .config.airframes import FLEET_CONFIGS, AirframeConfig
+
 HETEROGENEOUS_SPECS: Dict[int, DroneSpecs] = {
-    0: DroneSpecs(
-        drone_class=DroneClass.HEAVY_SCOUT,
-        mass=0.65,
-        arm_length=0.15,
-        battery_capacity_wh=8.5,
-        max_speed=2.4,
-        cruise_altitude=4.5,
-        camera_fov_deg=45.0,  # Narrow zoom lens
-        max_sensor_range=35.0,
-        comm_range=18.0,
-        thrust_margin=2.0,
-    ),
-    1: DroneSpecs(
-        drone_class=DroneClass.FAST_INTERCEPTOR,
-        mass=0.28,
-        arm_length=0.065,
-        battery_capacity_wh=3.2,
-        max_speed=4.5,  # High speed dash
-        cruise_altitude=3.5,
-        camera_fov_deg=95.0,  # Wide angle
-        max_sensor_range=22.0,
-        comm_range=15.0,
-        thrust_margin=2.6,
-    ),
-    2: DroneSpecs(
-        drone_class=DroneClass.THERMAL_SURVEYOR,
-        mass=0.42,
-        arm_length=0.10,
-        battery_capacity_wh=5.5,
-        max_speed=2.8,
-        cruise_altitude=3.8,
-        camera_fov_deg=75.0,  # Multispectral
-        max_sensor_range=28.0,
-        comm_range=18.0,
-        thrust_margin=2.2,
-    ),
-    3: DroneSpecs(
-        drone_class=DroneClass.COMMS_RELAY,
-        mass=0.52,
-        arm_length=0.12,
-        battery_capacity_wh=6.8,
-        max_speed=2.2,
-        cruise_altitude=5.5,  # High altitude relay
-        camera_fov_deg=65.0,
-        max_sensor_range=25.0,
-        comm_range=32.0,  # Extended high-gain RF dish
-        thrust_margin=2.1,
-    ),
+    did: DroneSpecs(
+        drone_class=DroneClass[cfg.drone_class.value],
+        mass=cfg.mass_kg,
+        arm_length=cfg.arm_length_m,
+        battery_capacity_wh=cfg.battery_capacity_wh,
+        max_speed=cfg.max_speed_mps,
+        cruise_altitude=4.5 if did == 0 else (3.5 if did == 1 else (3.8 if did == 2 else 9.5)),
+        camera_fov_deg=cfg.camera_fov_deg,
+        max_sensor_range=cfg.camera_range_m,
+        comm_range=cfg.rf_comm_range_m,
+        thrust_margin=cfg.thrust_margin,
+    )
+    for did, cfg in FLEET_CONFIGS.items()
 }
 
 

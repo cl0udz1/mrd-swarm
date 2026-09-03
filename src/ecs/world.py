@@ -11,10 +11,11 @@ import math
 from typing import Dict, List, Tuple, Optional, Any, Set
 import numpy as np
 
-from ..controller import CascadedQuadrotorController
+from ..controller import GeometricSE3Controller, CascadedQuadrotorController
 from ..perception import VoxelUncertaintyGrid, LineOfSightSensor
 from ..navigation import APFReactiveNavigator
 from ..ai_agent_core import HETEROGENEOUS_SPECS
+from ..physics import DrydenTurbulenceModel
 from ..flight_recorder import FlightDataRecorder
 from .components import (
     TransformComponent, PhysicsBodyComponent, SensorComponent,
@@ -27,7 +28,7 @@ from .systems import (
     apf_navigation_system, se3_control_system, battery_discharge_system,
 )
 from .mission_state import MissionPhase, MissionStateManager
-from .target_tracker import EKFTargetTracker
+from .target_tracker import KalmanTargetTracker, EKFTargetTracker
 from .doctrines import TacticalDoctrineID, get_doctrine_config
 from ..ai_commander import DeepSeekSwarmCommander
 from ..ai_vision_recon import DeepSeekVisionRecon
@@ -40,9 +41,13 @@ class ECSWorld:
 
     def __init__(self, obstacles: List[Dict[str, Any]], seed: int = 42):
         self.obstacles = obstacles
+        self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.sim_time = 0.0
         self.dt = 0.01  # 100 Hz step
+
+        # Atmospheric Turbulence Model (MIL-F-8785C Dryden Filter)
+        self.dryden_wind = DrydenTurbulenceModel(dt=self.dt, altitude_m=10.0, wind_speed_20m=3.0, seed=seed)
 
         # Sub-Agent Helper Systems
         self.uncertainty_grid = VoxelUncertaintyGrid(obstacles=obstacles)
@@ -50,7 +55,7 @@ class ECSWorld:
         self.navigator = APFReactiveNavigator()
         self.recorder = FlightDataRecorder(max_buffer_size=60000)
         self.mission_mgr = MissionStateManager(n_targets=3, cruise_altitude=1.0)
-        self.target_tracker = EKFTargetTracker(n_targets=3)
+        self.target_tracker = KalmanTargetTracker(n_targets=3)
 
         # DeepSeek AI Cognitive Layer (Async LLM Tactical Commander & Vision Recon)
         self.ai_commander = DeepSeekSwarmCommander()
@@ -286,12 +291,8 @@ class ECSWorld:
         """
         t = self.sim_time
 
-        # 1. Wind Turbulence Model
-        wind_vel = np.array([
-            1.2 * math.sin(0.4 * t) + 0.3 * math.sin(1.1 * t),
-            1.0 * math.cos(0.5 * t) + 0.2 * math.cos(1.0 * t),
-            0.2 * math.sin(0.8 * t),
-        ])
+        # 1. Wind Turbulence Model (MIL-F-8785C Dryden Stochastic Filter)
+        wind_vel = self.dryden_wind.step()
 
         # 2. Perception System
         self.detected_target_ids = perception_system(
@@ -333,32 +334,33 @@ class ECSWorld:
         step_idx = int(round(self.sim_time * 100))
         if step_idx % 30 == 0:  # Check tactical commander every 0.3s
             active_smokes_ids = [tid for tid, t_obj in self.targets.items() if t_obj.smoke_active]
-            self.ai_commander.request_tactical_update(
-                sim_time=self.sim_time,
-                drone_states={
-                    did: {
-                        "pos": self.drone_transforms[did].position.tolist(),
-                        "speed": float(np.linalg.norm(self.drone_transforms[did].velocity)),
-                        "battery": float(self.batteries[did].soc_pct),
-                        "role": self.tacticals[did].role.name,
-                    }
-                    for did in self.drone_transforms
-                },
-                target_tracks=self.target_tracker.get_telemetry(),
-                detected_target_ids=list(self.detected_target_ids),
-                uncertainty_pct=float(self.uncertainty_grid.get_mean_uncertainty()),
-                ew_jamming_active=self.ew_field.active,
-                active_smokes=active_smokes_ids,
-                mission_phase=self.mission_mgr.phase.name,
-            )
+            if hasattr(self.ai_commander, "request_tactical_evaluation"):
+                self.ai_commander.request_tactical_evaluation(
+                    sim_time=self.sim_time,
+                    telemetry={
+                        "drones": {
+                            did: {
+                                "pos": self.drone_transforms[did].position.tolist(),
+                                "speed": float(np.linalg.norm(self.drone_transforms[did].velocity)),
+                                "battery": float(self.batteries[did].soc_pct),
+                                "role": self.tacticals[did].role.name,
+                            }
+                            for did in self.drone_transforms
+                        },
+                        "uncertainty_pct": float(self.uncertainty_grid.get_mean_uncertainty()),
+                        "phase": self.mission_mgr.phase.name,
+                    },
+                    known_target_ids=set(self.target_tracker.get_tracked_ids()),
+                )
 
         # Trigger Vision Reconnaissance every 2.5s or on sighting
         if step_idx % 250 == 0 or (len(self.detected_target_ids) > 0 and step_idx % 120 == 0):
             frame = self._generate_recon_camera_frame(drone_id=1)
             self.vision_recon.request_vision_analysis(frame, drone_id=1, camera_mode="RGB_EO")
 
-        # 7. Brain Decision System (with EKF tracking, mission phases, utility allocation, AI Commander directive)
+        # 7. Brain Decision System (with Kalman tracking, utility allocation, AI Commander directive, and closed-loop vision)
         latest_ai_directive = self.ai_commander.get_latest_directive()
+        active_vision_obs = self.vision_recon.get_active_vision_observation() if hasattr(self.vision_recon, "get_active_vision_observation") else None
         brain_decision_system(
             drone_transforms=self.drone_transforms,
             sensors=self.sensors,
@@ -372,6 +374,8 @@ class ECSWorld:
             tracker=self.target_tracker,
             ai_directive=latest_ai_directive,
             doctrine=self.current_doctrine,
+            targets=self.targets,
+            vision_observation=active_vision_obs,
         )
 
         # 7. APF Navigation System

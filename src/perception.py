@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-perception.py — Perception & 3D Voxel Uncertainty Sub-Agent (Vectorized High-Performance)
+perception.py — 3D Voxel Epistemic Uncertainty Grid & Raycast Line-of-Sight Sensing
 
 Provides:
-- 3D Voxel Uncertainty Grid: Represents spatial unknown volumes across the 45m x 45m x 15m theater.
-- Vectorized Camera Frustum Raycast Coverage & Occlusion Checks.
-- Fast NumPy-Accelerated Information Gain Estimator (<0.1ms per evaluation).
+- LineOfSightSensor: Ray-box intersection testing for urban obstacle occlusions.
+- VoxelUncertaintyGrid: 3D volumetric epistemic uncertainty field U(x, y, z) with
+  vectorized camera frustum decay and rigorous building occlusion raycasting.
 """
 
 from __future__ import annotations
 import math
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
+from numpy.typing import NDArray
 
 from .physics import quat_to_rotation_matrix
 
@@ -23,54 +23,76 @@ def ray_intersects_box(
     box_min: np.ndarray,
     box_max: np.ndarray,
 ) -> Tuple[bool, float, float]:
-    """Slab method for 3D ray-AABB intersection test."""
-    t_min = 0.0
-    t_max = 1.0
+    """
+    Kay-Kajiya slab method for ray-AABB intersection.
+    Returns (hit, t_min, t_max) along ray_origin + t * ray_dir.
+    """
+    safe_dir = np.where(np.abs(ray_dir) < 1e-7, 1e-7, ray_dir)
+    inv_dir = 1.0 / safe_dir
+    t1 = (box_min - ray_origin) * inv_dir
+    t2 = (box_max - ray_origin) * inv_dir
 
-    for i in range(3):
-        if abs(ray_dir[i]) < 1e-8:
-            if ray_origin[i] < box_min[i] or ray_origin[i] > box_max[i]:
-                return False, 0.0, 0.0
-        else:
-            inv_d = 1.0 / ray_dir[i]
-            t1 = (box_min[i] - ray_origin[i]) * inv_d
-            t2 = (box_max[i] - ray_origin[i]) * inv_d
-            if t1 > t2:
-                t1, t2 = t2, t1
-            t_min = max(t_min, t1)
-            t_max = min(t_max, t2)
-            if t_min > t_max:
-                return False, 0.0, 0.0
+    t_near = np.minimum(t1, t2)
+    t_far = np.maximum(t1, t2)
 
-    return True, t_min, t_max
+    if ray_dir.ndim == 1:
+        t_enter = float(np.max(t_near))
+        t_exit = float(np.min(t_far))
+        hit = (t_exit >= t_enter) and (t_exit >= 0.0)
+        return hit, t_enter, t_exit
+    else:
+        t_enter = np.max(t_near, axis=-1)
+        t_exit = np.min(t_far, axis=-1)
+        hit = (t_exit >= t_enter) & (t_exit >= 0.0)
+        return hit, t_enter, t_exit
 
 
 class LineOfSightSensor:
-    """Computes optical/thermal visibility with 3D building occlusion."""
+    """Performs building occlusion raycasts across urban architecture."""
 
     def __init__(self, obstacles: List[Dict[str, Any]]):
         self.obstacles = obstacles
-        self.building_boxes = []
+        self.building_boxes: List[Tuple[np.ndarray, np.ndarray]] = []
         for obs in obstacles:
-            ox, oy, oz = obs["pos"]
+            ox, oy = obs["pos"][:2]
             hw, hl = obs["size"][:2]
-            h = obs.get("height", 8.0)
+            h = obs.get("height", obs["size"][2] * 2.0 if len(obs["size"]) > 2 else 8.0)
             self.building_boxes.append((
-                np.array([ox - hw, oy - hl, 0.0]),
-                np.array([ox + hw, oy + hl, h]),
+                np.array([ox - hw, oy - hl, 0.0], dtype=np.float64),
+                np.array([ox + hw, oy + hl, h], dtype=np.float64),
             ))
 
     def is_occluded(self, p_start: np.ndarray, p_end: np.ndarray) -> bool:
+        """Returns True if the line segment between p_start and p_end hits a building."""
         ray_dir = p_end - p_start
-        dist = np.linalg.norm(ray_dir)
+        dist = float(np.linalg.norm(ray_dir))
         if dist < 1e-4:
             return False
 
         for b_min, b_max in self.building_boxes:
             hit, t1, t2 = ray_intersects_box(p_start, ray_dir, b_min, b_max)
-            if hit and 0.02 < t1 < 0.98:
+            # Must intersect strictly between start and end point (t in [0.02, 0.98])
+            if hit and (0.02 < t1 < 0.98):
                 return True
         return False
+
+    def batch_is_occluded(self, p_start: np.ndarray, p_targets: np.ndarray) -> np.ndarray:
+        """Vectorized occlusion testing from p_start to N target points. Shape (N,) bool."""
+        n_pts = p_targets.shape[0]
+        if n_pts == 0:
+            return np.zeros(0, dtype=bool)
+
+        ray_dirs = p_targets - p_start
+        dists = np.linalg.norm(ray_dirs, axis=-1, keepdims=True)
+        valid = (dists.squeeze(-1) > 1e-4)
+        occluded = np.zeros(n_pts, dtype=bool)
+
+        for b_min, b_max in self.building_boxes:
+            hit, t1, t2 = ray_intersects_box(p_start, ray_dirs, b_min, b_max)
+            blocked = hit & valid & (t1 > 0.02) & (t1 < 0.98)
+            occluded |= blocked
+
+        return occluded
 
     def evaluate_target_visibility(
         self,
@@ -80,32 +102,36 @@ class LineOfSightSensor:
         fov_deg: float,
         max_range: float,
     ) -> Tuple[bool, float]:
+        """
+        Check if target is inside camera frustum, within range, and not occluded by buildings.
+        Returns (is_visible, confidence).
+        """
         diff = target_pos - drone_pos
         dist = float(np.linalg.norm(diff))
-
-        if dist > max_range:
+        if dist > max_range or dist < 0.2:
             return False, 0.0
 
         R_b2w = quat_to_rotation_matrix(drone_quat)
         cam_fwd = R_b2w[:, 0]
-        cos_angle = float(np.dot(cam_fwd, diff / (dist + 1e-6)))
+        cos_ang = float(np.dot(cam_fwd, diff / dist))
         fov_limit = math.cos(math.radians(fov_deg / 2.0))
-
-        if cos_angle < fov_limit:
+        if cos_ang < fov_limit:
             return False, 0.0
 
         if self.is_occluded(drone_pos, target_pos):
             return False, 0.0
 
-        range_factor = 1.0 - (dist / max_range)
-        angle_factor = (cos_angle - fov_limit) / (1.0 - fov_limit + 1e-6)
-        conf = float(np.clip(range_factor * 0.6 + angle_factor * 0.4, 0.25, 0.99))
+        range_factor = max(0.0, 1.0 - (dist / max_range))
+        angle_factor = max(0.0, (cos_ang - fov_limit) / (1.0 - fov_limit + 1e-6))
+        conf = float(np.clip(0.6 * range_factor + 0.4 * angle_factor, 0.25, 0.98))
         return True, conf
+
 
 
 class VoxelUncertaintyGrid:
     """
-    3D Voxel Uncertainty Field with fast NumPy vectorized coverage and evaluation.
+    3D Voxel Uncertainty Field with building occlusion raycasting.
+    Only voxels with unobstructed line-of-sight to the camera are decayed.
     """
 
     def __init__(
@@ -127,7 +153,7 @@ class VoxelUncertaintyGrid:
 
         self.grid = np.ones((self.nx, self.ny, self.nz), dtype=np.float32)
 
-        # Coordinate arrays
+        # Coordinate meshgrid
         xs = np.linspace(self.x_min + self.res / 2, self.x_max - self.res / 2, self.nx)
         ys = np.linspace(self.y_min + self.res / 2, self.y_max - self.res / 2, self.ny)
         zs = np.linspace(self.z_min + self.res / 2, self.z_max - self.res / 2, self.nz)
@@ -136,23 +162,20 @@ class VoxelUncertaintyGrid:
 
         self.los_sensor = LineOfSightSensor(obstacles if obstacles else [])
 
-        # Persistent boolean mask: True for voxels that are free space (not inside buildings).
-        # This mask NEVER changes, so explored voxels (value → 0) are still counted in metrics.
+        # Free space mask: zero out solid voxels inside buildings
         self.free_space_mask = np.ones((self.nx, self.ny, self.nz), dtype=bool)
-
-        # Zero out voxels inside solid buildings and mark them as non-free-space
         if obstacles:
             for obs in obstacles:
                 ox, oy = obs["pos"][:2]
                 hw, hl = obs["size"][:2]
                 h = obs.get("height", 8.0)
-                building_mask = (
+                b_mask = (
                     (np.abs(self.X - ox) <= hw)
                     & (np.abs(self.Y - oy) <= hl)
                     & (self.Z <= h)
                 )
-                self.grid[building_mask] = 0.0
-                self.free_space_mask[building_mask] = False
+                self.grid[b_mask] = 0.0
+                self.free_space_mask[b_mask] = False
 
         self.n_free_voxels = int(np.sum(self.free_space_mask))
 
@@ -164,14 +187,17 @@ class VoxelUncertaintyGrid:
         max_range: float,
         decay_rate: float = 0.80,
     ) -> int:
-        """Vectorized camera frustum decay."""
+        """
+        Decay uncertainty for voxels inside camera frustum THAT ARE NOT OCCLUDED by buildings.
+        Returns the number of unobstructed voxels updated.
+        """
         R_b2w = quat_to_rotation_matrix(drone_quat)
         cam_fwd = R_b2w[:, 0]
         fov_limit = math.cos(math.radians(fov_deg / 2.0))
 
         diff = self.voxel_coords - drone_pos
         dists_sq = np.sum(diff**2, axis=-1)
-        in_range = dists_sq <= (max_range**2)
+        in_range = (dists_sq <= (max_range**2)) & self.free_space_mask
 
         if not np.any(in_range):
             return 0
@@ -180,84 +206,76 @@ class VoxelUncertaintyGrid:
         cos_angles = np.sum(diff[in_range] * cam_fwd, axis=-1) / dists
         in_frustum = cos_angles >= fov_limit
 
-        full_mask = np.zeros_like(in_range, dtype=bool)
-        full_mask[in_range] = in_frustum
+        if not np.any(in_frustum):
+            return 0
 
-        # Decay voxels in frustum
-        self.grid[full_mask] *= (1.0 - decay_rate)
-        return int(np.sum(full_mask))
+        # Candidate indices in flat array
+        cand_indices = np.nonzero(in_range)
+        cand_coords = self.voxel_coords[cand_indices]  # (K, 3)
+        frustum_coords = cand_coords[in_frustum]        # (M, 3)
 
-    def calculate_information_gain(
-        self,
-        candidate_pos: np.ndarray,
-        candidate_yaw: float,
-        fov_deg: float,
-        max_range: float,
-    ) -> float:
-        """Fast vectorized information gain computation."""
-        cam_fwd = np.array([math.cos(candidate_yaw), math.sin(candidate_yaw), -0.2], dtype=np.float32)
-        cam_fwd /= (np.linalg.norm(cam_fwd) + 1e-6)
-        fov_limit = math.cos(math.radians(fov_deg / 2.0))
+        # Vectorized occlusion raycasting against solid buildings
+        occluded = self.los_sensor.batch_is_occluded(drone_pos, frustum_coords)
+        visible_mask = ~occluded
 
+        # Map back to full grid
+        frustum_indices = tuple(c[in_frustum][visible_mask] for c in cand_indices)
+        self.grid[frustum_indices] *= (1.0 - decay_rate)
+
+        return int(np.sum(visible_mask))
+
+    def calculate_information_gain(self, candidate_pos: np.ndarray, fov_deg: float, max_range: float) -> float:
+        """Estimates potential uncertainty reduction from candidate position."""
         diff = self.voxel_coords - candidate_pos
         dists_sq = np.sum(diff**2, axis=-1)
-        in_range = (dists_sq <= (max_range**2)) & (self.grid > 0.15)
-
+        in_range = (dists_sq <= (max_range**2)) & self.free_space_mask
         if not np.any(in_range):
             return 0.0
+        return float(np.sum(self.grid[in_range]))
 
-        dists = np.sqrt(dists_sq[in_range]) + 1e-6
-        cos_angles = np.sum(diff[in_range] * cam_fwd, axis=-1) / dists
-        in_frustum = cos_angles >= fov_limit
+    def get_mean_uncertainty(self) -> float:
+        """Mean uncertainty across all navigable free-space voxels (0 to 100%)."""
+        if self.n_free_voxels == 0:
+            return 0.0
+        return float((np.sum(self.grid[self.free_space_mask]) / self.n_free_voxels) * 100.0)
 
-        return float(np.sum(self.grid[in_range][in_frustum]))
+    def get_coverage_pct(self, threshold: float = 0.15) -> float:
+        """Percentage of free-space voxels thoroughly explored (uncertainty < threshold)."""
+        if self.n_free_voxels == 0:
+            return 100.0
+        cleared = (self.grid[self.free_space_mask] < threshold)
+        return float((np.sum(cleared) / self.n_free_voxels) * 100.0)
 
     def get_best_frontier(
         self,
-        current_pos: np.ndarray,
-        cruise_altitude: float = 4.0,
-        fov_deg: float = 75.0,
-        max_range: float = 25.0,
+        drone_pos: np.ndarray,
+        cruise_altitude: float = 3.5,
+        n_candidates: int = 16,
     ) -> Tuple[np.ndarray, float]:
-        """Evaluates candidate exploration positions efficiently."""
-        best_pos = current_pos.copy()
-        best_pos[2] = cruise_altitude
-        best_gain = -1.0
-
-        angles = np.linspace(0, 2 * np.pi, 8, endpoint=False)
-        step_distances = [6.0, 12.0]
-
-        for r in step_distances:
-            for theta in angles:
-                cand_x = current_pos[0] + r * math.cos(theta)
-                cand_y = current_pos[1] + r * math.sin(theta)
-
-                if not (self.x_min + 3.0 <= cand_x <= self.x_max - 3.0 and self.y_min + 3.0 <= cand_y <= self.y_max - 3.0):
-                    continue
-
-                cand_pos = np.array([cand_x, cand_y, cruise_altitude])
-                gain = self.calculate_information_gain(cand_pos, theta, fov_deg, max_range)
-                score = gain / (1.0 + 0.05 * r)
-
-                if score > best_gain:
-                    best_gain = score
-                    best_pos = cand_pos
-
-        return best_pos, best_gain
-
-    def get_mean_uncertainty(self) -> float:
-        """Mean uncertainty over all free-space voxels (NOT inside buildings).
-        
-        Uses the persistent free_space_mask so that fully-explored voxels
-        (uncertainty → 0.0) are still counted, driving the metric toward 0%.
         """
-        if self.n_free_voxels == 0:
-            return 0.0
-        return float(np.mean(self.grid[self.free_space_mask]) * 100.0)
+        Identifies highest-information frontier waypoint in free space.
+        Returns (best_waypoint_3d, expected_gain).
+        """
+        angles = np.linspace(0, 2 * np.pi, n_candidates, endpoint=False)
+        radii = [8.0, 14.0]
 
-    def get_explored_pct(self) -> float:
-        """Percentage of free-space voxels with uncertainty < 10%."""
-        if self.n_free_voxels == 0:
-            return 100.0
-        explored = np.sum(self.grid[self.free_space_mask] < 0.10)
-        return float(explored / self.n_free_voxels * 100.0)
+        best_p = drone_pos.copy()
+        best_p[2] = cruise_altitude
+        max_gain = -1.0
+
+        for r in radii:
+            for ang in angles:
+                cx = float(np.clip(drone_pos[0] + r * math.cos(ang), self.x_min + 3.0, self.x_max - 3.0))
+                cy = float(np.clip(drone_pos[1] + r * math.sin(ang), self.y_min + 3.0, self.y_max - 3.0))
+                cand_pos = np.array([cx, cy, cruise_altitude], dtype=np.float64)
+
+                if not self.los_sensor.is_occluded(drone_pos, cand_pos):
+                    gain = self.calculate_information_gain(cand_pos, fov_deg=80.0, max_range=15.0)
+                    dist = float(np.linalg.norm(cand_pos[:2] - drone_pos[:2]))
+                    score = gain / (1.0 + 0.1 * dist)
+                    if score > max_gain:
+                        max_gain = score
+                        best_p = cand_pos
+
+        return best_p, max(0.0, max_gain)
+

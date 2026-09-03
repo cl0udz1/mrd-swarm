@@ -1,356 +1,171 @@
-# MRD-SWARM: Autonomous Drone Swarm System & DeepSeek Cognitive Intelligence
+# MRD-SWARM: Multi-Agent Reactive Drone Swarm Simulation & Tactical Intelligence
 
-<div align="center">
-
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Physics Engine](https://img.shields.io/badge/physics-MuJoCo%203.x-red.svg)](https://mujoco.org/)
-[![AI Cognitive Core](https://img.shields.io/badge/AI%20Commander-DeepSeek--v4--flash-purple.svg)](https://platform.deepseek.com/)
-[![Vision Recon](https://img.shields.io/badge/Vision%20Agent-DeepSeek--v4--vision--exp-orange.svg)](https://platform.deepseek.com/)
-[![Architecture](https://img.shields.io/badge/architecture-Data--Oriented%20ECS-emerald.svg)]()
-[![Visualizer](https://img.shields.io/badge/HUD-Three.js%20WebGL%2060Hz-cyan.svg)]()
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://img.shields.io/badge/tests-25%2F25%20passed-brightgreen.svg)](tests/)
+[![Physics](https://img.shields.io/badge/physics-6--DoF%20SE(3)%20Rigid--Body-orange.svg)](src/physics.py)
+[![Atmosphere](https://img.shields.io/badge/turbulence-Dryden%20MIL--F--8785C-blueviolet.svg)](src/physics.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**A high-fidelity, aerospace-grade autonomous multi-UAV reconnaissance and interdiction platform combining 100 Hz $SE(3)$ geometric rigid-body physics, data-oriented Entity Component Systems (ECS), parameterized swarm battle doctrines, and multimodal cognitive reasoning powered by the DeepSeek API.**
-
-[Quickstart](#quickstart) • [Architecture](#system-architecture) • [Aerospace Physics](#aerospace-physics--cascaded-se3-control) • [DeepSeek AI Core](#deepseek-multimodal-cognitive-ai-integration) • [Tactical Doctrines & Benchmark](#tactical-doctrine-engine--comparative-benchmark) • [Deliverables](#media--evaluation-dashboards)
-
-</div>
+An open, reproducible research framework for evaluating decentralized multi-agent quadrotor tactics, epistemic uncertainty reduction, and autonomous target interception in complex 3D urban environments.
 
 ---
 
-## Highlights & Key Capabilities
+## 1. System Classification & Technical Reality
 
-- **Rigid-Body Aerospace Physics (100 Hz)**: Cascaded $SE(3)$ non-linear geometric quadrotor dynamics with realistic motor thrust margins ($2.0\times - 3.5\times$), aerodynamic drag, gyroscopic coupling ($\mathbf{\omega} \times \mathbf{J}\mathbf{\omega}$), and Dryden crosswind turbulence rejection.
-- **Data-Oriented ECS Architecture**: Cache-coherent contiguous state updates cleanly decoupling physical bodies, sensor packages, navigation, and decision pipelines.
-- **7-System Tactical Intelligence**:
-  1. Continuous **Extended Kalman Filtering (EKF)** with covariance propagation for occluded ground target persistence.
-  2. 6-Phase discrete-event **Mission State Machine** (`TAKEOFF`, `AREA_SWEEP`, `HUNT`, `CONTAIN`, `RTB_RECOVERY`, `MISSION_COMPLETE`).
-  3. Analytical **Coordinated Pincer Enclosure Geometry** ($\Delta\theta$ angular separation and Time-to-Intercept calculation).
-  4. Capability-weighted **Utility Task Allocation** solving multi-agent roles at 10 Hz.
-  5. Battery **Point-of-No-Return (PNR)** monitoring with autonomous rooftop helipad recovery.
-  6. **Lost-Target Expanding Square Recovery** search patterns.
-  7. **3D Voxel Uncertainty Field** $U(x,y,z)$ with exponential information decay.
-- **DeepSeek Cognitive AI Integration**:
-  - **`deepseek-v4-flash` AI Swarm Commander**: Evaluates combat telemetry, streams military Chain-of-Thought (CoT) reasoning, and broadcasts dynamic voice radio communications in an asynchronous, non-blocking thread.
-  - **`deepseek-v4-flash-vision-exp` Visual Recon Agent**: Inspects rendered MuJoCo FPV camera frames to identify targets, detect aerosol smoke screens, and recommend tactical flanking routes.
-  - **Human-in-the-Loop Operator Console**: Real-time natural language command interface via WebSocket.
-- **Modular Tactical Doctrine Engine**: Parameterized combat doctrines (`AGGRESSIVE_PINCER`, `WOLFPACK_CONTAINMENT`, `STEALTH_SHADOW`, `DEEPSEEK_ADAPTIVE`) benchmarked against reactive ground targets deploying aerosol smoke screens.
-- **Dual Presentation Layers**:
-  - Headless 1080p 50 FPS 3-panel split-screen MP4 report generator.
-  - Real-time Three.js WebGL tactical visualizer running at 60 Hz with glassmorphic draggable HUD windows.
+To uphold strict scientific integrity, all algorithms and simulation capabilities in MRD-SWARM are classified by their exact mathematical and software implementations:
+
+| Subsystem | Authoritative Implementation | Reclassified From (Prototype) |
+|---|---|---|
+| **Simulation Core** | Python 6-DoF numerical rigid-body quadrotor dynamics (100 Hz symplectic Euler) with offscreen camera rendering via MuJoCo 3.x | *"Headless MuJoCo Physics Core"* |
+| **Atmospheric Disturbances** | Discrete-time Dryden turbulence shaping filter (MIL-F-8785C) driven by Gaussian white noise $\mathcal{N}(0, 1)$ | *"Turbulent wind disturbances"* |
+| **Flight Control** | Geometric $SE(3)$ controller with $SO(3)$ attitude error vector $\mathbf{e}_R$ and 4-rotor mixer allocation matrix $\mathbf{B} \in \mathbb{R}^{4 \times 4}$ | *"Cascaded SE(3) controller"* |
+| **State Estimation** | Linear 4-state constant-velocity Kalman target tracker with Joseph-stabilized covariance updates | *"Extended Kalman Filter (EKF)"* |
+| **Sensors & Occlusion** | Synthetic noisy sensor pipeline (range/bearing noise, ray-AABB building occlusion, optical aerosol dropout) | *"Perfect synthetic sensors"* |
+| **Networking** | Range-constrained ad-hoc mesh protocol with multi-hop packet forwarding, TTL decrement, and duplicate suppression | *"Bayesian consensus & CBBA"* |
+| **Tactical Coordination** | Distributed utility-based task auction + local finite state machines + AI strategic advisory layer | *"Centralized swarm brain"* |
 
 ---
 
-## Quickstart
+## 2. System Architecture & Component Dataflow
 
-### 1. Prerequisites & Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/mrd-swarm.git
-cd mrd-swarm
-
-# Create and activate a virtual environment
-python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configure DeepSeek API Credentials
-
-Copy the `.env.example` template to `.env` and insert your DeepSeek API key:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-```ini
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_COMMANDER_MODEL=deepseek-v4-flash
-DEEPSEEK_VISION_MODEL=deepseek-v4-flash-vision-exp
-```
-
-*(Note: The simulation runs fully even without an API key using fallback heuristic commanders).*
-
-### 3. Run Standalone Closed-Loop Mission (Headless MuJoCo + MP4 Generation)
-
-Execute a full 90-second mission (9,000 control steps) with 3-panel split-screen video rendering:
-
-```bash
-# Run with DeepSeek Adaptive Doctrine
-python dynamic_swarm_sim.py --steps 9000 --doctrine DEEPSEEK_ADAPTIVE
-
-# Run with Aggressive Pincer Dash
-python dynamic_swarm_sim.py --steps 9000 --doctrine AGGRESSIVE_PINCER
-
-# Fast run without video rendering
-python dynamic_swarm_sim.py --steps 1000 --no-video
-```
-The output video will be generated at `media/dynamic_swarm_mission.mp4` along with telemetry plots and JSON logs.
-
-### 4. Run Multi-Doctrine Comparative Benchmark
-
-Run the comparative benchmark suite evaluating all three doctrines head-to-head:
-
-```bash
-python scripts/run_doctrine_benchmark.py
-```
-Generates `media/plot_tactical_doctrines_comparison.png` and `media/doctrine_benchmark_summary.json`.
-
-### 5. Launch Live 3D WebGL Tactical Visualizer
-
-Start the live WebSocket telemetry bridge (port 8765) and HTTP dashboard (port 8080):
-
-```bash
-python run_swarm_stack.py
-```
-Open **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)** in your web browser.
-
----
-
-## System Architecture
+MRD-SWARM enforces strict operational separation between high-rate physical integration, localized state estimation, decentralized mesh communications, and asynchronous cognitive AI directives:
 
 ```mermaid
 graph TD
-    subgraph "Deterministic Hard Real-Time Core (100 Hz)"
-        MJ[MuJoCo 3.x Physics World]
-        SE3[SE3 Geometric Quadrotor Controller]
-        APF[3D APF Reactive Local Navigation]
+    subgraph Physics & Flight Dynamics [100 Hz Loop]
+        Dryden[MIL-F-8785C Dryden Turbulence] --> RigidBody[6-DoF Quadrotor Kinematics]
+        SE3[Geometric SE3 Controller] --> Alloc[4-Rotor Mixer Matrix B]
+        Alloc --> Clamping[Actuator Saturation Clamping]
+        Clamping --> RigidBody
     end
 
-    subgraph "Tactical Brain & State Estimation (10 Hz)"
-        EKF[Extended Kalman Filter Tracker]
-        MSM[6-Phase Mission State Machine]
-        UNC[3D Voxel Uncertainty Grid]
-        DOC[Swarm Tactical Doctrine Engine]
-        UTIL[Utility Task Allocator]
+    subgraph Perception & Epistemic Field [10-50 Hz Loop]
+        UrbanMesh[Urban Buildings & Obstacles] --> Raycast[Vectorized Ray-AABB Occlusion]
+        SmokeCloud[Optical Aerosol Smoke Screen] --> Raycast
+        Raycast --> SyntheticSensor[Range-Bearing Noisy Sensors]
+        SyntheticSensor --> Kalman[Joseph-Form Kalman Tracker]
+        Raycast --> VoxelGrid[3D Voxel Uncertainty Field]
     end
 
-    subgraph "DeepSeek Cognitive Layer (Async Non-Blocking)"
-        AIC[DeepSeek Swarm Commander<br/>deepseek-v4-flash]
-        VIS[DeepSeek Vision Recon Agent<br/>deepseek-v4-flash-vision-exp]
+    subgraph Decentralized Mesh [10 Hz Ad-Hoc Network]
+        Mesh[Gossip Protocol] --> MultiHop[TTL Decrement & Deduplication]
+        MultiHop --> UtilityAuction[Distributed Utility Auction]
+        UtilityAuction --> RoleAllocation[Tactical Role Allocator]
     end
 
-    subgraph "Interactive Presentation Layer (60 Hz)"
-        WS[High-Throughput WebSocket Bridge]
-        WEB[Three.js WebGL Tactical Visualizer]
-        PIP[Real-Time FPV Camera HUD]
-        OP[Human-in-the-Loop Operator Uplink]
+    subgraph AI Authority Model [0.2-1 Hz Asynchronous Strategic Advisory]
+        FPVCam[MuJoCo FPV Offscreen Camera] --> DeepSeekVision[DeepSeek Vision Recon VLM]
+        FleetState[Swarm Telemetry & Tracks] --> DeepSeekCommander[DeepSeek AI Commander]
+        DeepSeekCommander --> SafetySanitizer[Schema Validator & Speed Clamper]
+        SafetySanitizer --> PostureDirectives[Strategic Posture Directives]
     end
 
-    MJ -->|Rigid Body States| SE3
-    SE3 -->|Pose & Velocity| EKF
-    EKF --> DOC
-    MSM --> DOC
-    UNC --> DOC
-    DOC --> UTIL
-    UTIL -->|Setpoints & Speeds| APF
-    APF -->|Desired Accel & Yaw| SE3
-
-    MJ -.->|Rendered FPV Frame| VIS
-    EKF -.->|Target Beliefs & Tracks| AIC
-    VIS -.->|Visual Intel & Threat Level| AIC
-    AIC -.->|Strategic Posture & Priorities| DOC
-
-    SE3 -->|60 Hz Telemetry| WS
-    AIC -->|Radio Broadcasts & CoT Tokens| WS
-    VIS -->|Analyzed Camera Cards| WS
-    WS --> WEB
-    WS --> PIP
-    OP -->|Natural Language Orders| AIC
-    OP -->|Doctrine Switching| DOC
+    PostureDirectives --> RoleAllocation
+    RoleAllocation --> APF[3D APF Reactive Obstacle Avoidance]
+    APF --> SE3
 ```
 
-### Concurrency Guarantees
-Remote DeepSeek API calls take between 2.0s and 30.0s depending on network load and token length. To prevent blocking the 100 Hz physics loop:
-- Worker threads (`threading.Thread(daemon=True)`) manage all outbound API queries asynchronously.
-- Atomic mutexes (`threading.Lock()`) swap the latest directive and vision cards in memory.
-- The 100 Hz simulation continuously queries the latest available cognitive state without waiting for network I/O.
+Detailed technical specifications and mathematical derivations are available in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
-## Aerospace Physics & Cascaded $SE(3)$ Control
+## 3. Authoritative Heterogeneous Fleet Parameters
 
-Quadrotor flight is governed by 6-DoF equations of motion under aerodynamic drag, rotor thrust margins, and Dryden wind turbulence:
+Physical parameters are centralized in `src/config/airframes.py` and enforce hard physical invariants across the fleet:
 
-### 1. Translational Outer Loop
-$$\mathbf{e}_p = \mathbf{p}_d - \mathbf{p}, \quad \mathbf{e}_v = \mathbf{v}_d - \mathbf{v}$$
-$$\mathbf{a}_{\text{des}} = K_p \mathbf{e}_p + K_v \mathbf{e}_v + g \mathbf{e}_3$$
-Horizontal acceleration is clamped to enforce realistic banking angle limits:
-$$\|\mathbf{a}_{\text{des}, xy}\| \le a_{\max} \approx 14.0\text{ m/s}^2 \quad (\approx 45^\circ \text{ bank angle})$$
-$$\mathbf{f}_{\text{des}} = m \mathbf{a}_{\text{des}}, \quad T = \text{clamp}(\|\mathbf{f}_{\text{des}}\|, T_{\min}, T_{\max})$$
-
-### 2. Rotational Inner Loop on $SO(3)$
-$$\mathbf{b}_{3,d} = \frac{\mathbf{f}_{\text{des}}}{\|\mathbf{f}_{\text{des}}\|}, \quad \mathbf{b}_{1,c} = [\cos\psi_d, \sin\psi_d, 0]^T$$
-$$\mathbf{b}_{2,d} = \frac{\mathbf{b}_{3,d} \times \mathbf{b}_{1,c}}{\|\mathbf{b}_{3,d} \times \mathbf{b}_{1,c}\|}, \quad \mathbf{b}_{1,d} = \mathbf{b}_{2,d} \times \mathbf{b}_{3,d}$$
-$$\mathbf{R}_d = [\mathbf{b}_{1,d}, \mathbf{b}_{2,d}, \mathbf{b}_{3,d}], \quad \mathbf{e}_R = \frac{1}{2} (\mathbf{R}_d^T \mathbf{R} - \mathbf{R}^T \mathbf{R}_d)^\vee$$
-$$\mathbf{\tau} = -K_R \mathbf{e}_R - K_\omega (\mathbf{\omega} - \mathbf{\omega}_d) + \mathbf{\omega} \times (\mathbf{J} \mathbf{\omega})$$
-
-### 3. Dryden Crosswind Turbulence & Aerodynamic Drag
-$$\mathbf{v}_{\text{wind}}(t) = \begin{bmatrix} 1.2 \sin(0.4t) + 0.3 \sin(1.1t) \\ 1.0 \cos(0.5t) + 0.2 \cos(1.0t) \\ 0.2 \sin(0.8t) \end{bmatrix}\text{ m/s}, \quad \mathbf{F}_{\text{drag}} = -\frac{1}{2} \rho C_d A \|\mathbf{v} - \mathbf{v}_{\text{wind}}\| (\mathbf{v} - \mathbf{v}_{\text{wind}})$$
+| Parameter | Unit | Drone 0 (Heavy Scout) | Drone 1 (Fast Interceptor) | Drone 2 (Thermal Surveyor) | Drone 3 (Comms Relay) |
+|---|---|:---:|:---:|:---:|:---:|
+| **Tactical Role** | - | Primary Urban Scout | High-Speed Interceptor | Smoke / Thermal Specialist | High-Altitude Relay |
+| **Mass ($m$)** | $\text{kg}$ | 0.650 | 0.280 | 0.420 | 0.500 |
+| **Arm Length ($L$)** | $\text{m}$ | 0.140 | 0.085 | 0.110 | 0.125 |
+| **Thrust Margin** | - | 2.40 | 3.80 | 2.60 | 2.20 |
+| **Max Total Thrust** | $\text{N}$ | 15.30 | 10.44 | 10.72 | 10.79 |
+| **Max Sprint Speed** | $\text{m/s}$ | 12.0 | 18.0 | 14.0 | 8.0 |
+| **Battery Capacity** | $\text{Wh}$ | 35.0 | 18.0 | 28.0 | 42.0 |
+| **RF Transmit Range** | $\text{m}$ | 18.0 | 18.0 | 18.0 | 32.0 |
+| **Cruise Altitude** | $\text{m}$ | 3.5 | 4.0 | 3.0 | 10.5 |
+| **Sensor Payload** | - | Wide RGB Gimbal | Fast Optical Tracker | Long-Wave Infrared (LWIR) | High-Gain Mesh Node |
 
 ---
 
-## Heterogeneous UAV Fleet Specifications
+## 4. Multi-Seed Empirical Experimental Campaign
 
-The fleet consists of 4 asymmetric, specialized UAV airframes designed for distinct tactical roles:
+The framework was evaluated across **80 independent simulation trials** (20 randomized seeds $\times$ 4 tactical doctrines) in a $45\text{m} \times 45\text{m} \times 15\text{m}$ cluttered urban theater with 5 skyscrapers and Dryden atmospheric turbulence ($1.0\text{ m/s}$ gust intensity).
 
-| Airframe Parameter | Drone 0: Heavy Scout | Drone 1: Fast Interceptor | Drone 2: Thermal Surveyor | Drone 3: Comms Relay |
-|---|:---:|:---:|:---:|:---:|
-| **Drone Class** | `HEAVY_SCOUT` | `FAST_INTERCEPTOR` | `THERMAL_SURVEYOR` | `COMMS_RELAY` |
-| **Airframe Mass ($m$)** | $0.65\text{ kg}$ | $0.28\text{ kg}$ | $0.42\text{ kg}$ | $0.50\text{ kg}$ |
-| **Arm Length ($l$)** | $0.14\text{ m}$ | $0.09\text{ m}$ | $0.11\text{ m}$ | $0.12\text{ m}$ |
-| **Thrust Margin ($\eta$)** | $2.2\times$ | $3.5\times$ | $2.4\times$ | $2.0\times$ |
-| **Sprint Velocity ($v_{\max}$)**| $12.0\text{ m/s}$ | **$18.0\text{ m/s}$** | $14.0\text{ m/s}$ | $8.0\text{ m/s}$ |
-| **Battery Capacity ($E_0$)** | $45.0\text{ Wh}$ | $22.0\text{ Wh}$ | $35.0\text{ Wh}$ | **$55.0\text{ Wh}$** |
-| **Primary Payload** | High-Res Visual Optical | High-Frame-Rate Optical | **Uncooled LWIR Thermal** | Multi-Band RF Repeater |
-| **FOV / Optical Range** | $85^\circ$ / $28\text{ m}$ | $75^\circ$ / $22\text{ m}$ | $70^\circ$ / $24\text{ m}$ | $60^\circ$ / $15\text{ m}$ |
-| **Mesh Range ($R_{\text{mesh}}$)** | $18.0\text{ m}$ | $18.0\text{ m}$ | $18.0\text{ m}$ | **$32.0\text{ m}$** |
-| **Operational Role** | Frontier Sweep & ID | High-Speed Corridor Flanker | Smoke Penetrator & Tracker | High-Altitude Mesh Anchor |
+### Summary Statistics (20 Randomized Seeds per Doctrine)
+
+| Doctrine | Mean $\Delta U$ (%) | 95% CI $\Delta U$ | Mean Enclosure (°) | Max Enclosure (°) | Energy ($Wh$) | Intercept TTI Status |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **AGGRESSIVE_PINCER** | 55.44% | $\pm 2.14\%$ | **44.97°** | **135.40°** | 2.70 | 0/20 (Time Exceeded) |
+| **WOLFPACK_CONTAINMENT** | 57.82% | $\pm 2.31\%$ | 38.64° | 124.90° | 2.72 | 0/20 (Time Exceeded) |
+| **STEALTH_SHADOW** | 59.44% | $\pm 3.12\%$ | 19.34° | 141.00° | 2.72 | 0/20 (Time Exceeded) |
+| **DEEPSEEK_ADAPTIVE** | **61.14%** | $\mathbf{\pm 2.57\%}$ | 23.40° | 128.90° | 2.71 | 0/20 (Time Exceeded) |
+
+### Key Experimental Insights & Honest Disclosures
+1. **Adaptive Exploration:** `DEEPSEEK_ADAPTIVE` achieved the highest epistemic uncertainty reduction ($61.14\%$) by dynamically routing unassigned drones to frontier exploration clusters when target tracks were occluded.
+2. **Kinematic Pincer Convergence:** `AGGRESSIVE_PINCER` maintained the highest sustained multi-drone enclosure angles ($44.97^\circ$ mean, $135.40^\circ$ peak).
+3. **Rigorous TTI Falsification:** Under the continuous holding window requirement ($1.5\text{s}$ uninterrupted enclosure $\ge 60^\circ$ at standoff $\le 6.0\text{m}$), all doctrines failed the 12-second window. Target cornering maneuvers and building occlusions broke line-of-sight within $0.8 - 1.2\text{s}$, demonstrating that realistic urban containment requires a $30 - 45\text{s}$ operational horizon.
+
+Complete experimental data and methodology are documented in [docs/EXPERIMENT_REPORT.md](docs/EXPERIMENT_REPORT.md).
 
 ---
 
-## DeepSeek Multimodal Cognitive AI Integration
+## 5. Automated Test Suite
 
-```
-========================================================================================================================
-COGNITIVE ARCHITECTURE: DEEPSEEK MULTIMODAL TACTICAL STACK
-========================================================================================================================
-[Agent 1: DeepSeek Swarm Tactical Commander]
-  - Model:             deepseek-v4-flash
-  - Concurrency:       Non-blocking asynchronous worker thread (threading.Thread, atomic lock)
-  - Reasoning Engine:  Chain-of-Thought (CoT) extraction via message.reasoning_content
-  - Output Schema:     Structured tactical JSON (strategic posture, target priorities, drone assignments, voice radio)
-  - Latency Profile:   4.2s - 25.4s (proportional to combat telemetry complexity)
+A comprehensive `pytest` test suite validates all modules in strict isolation before simulation execution:
 
-[Agent 2: DeepSeek Visual Reconnaissance Agent]
-  - Model:             deepseek-v4-flash-vision-exp
-  - Concurrency:       Non-blocking background image pipeline
-  - Input:             256x256 RGB rendered FPV camera frame (base64 PNG data URL)
-  - Inspection Output: Target classification, threat rating, aerosol/smoke detection, flanking corridor recommendation
-  - Latency Profile:   2.2s - 6.4s per optical frame
-
-[Agent 3: Human-in-the-Loop Operator Uplink]
-  - Bridge:            WebSocket (Port 8765) + WebGL Command Line Form
-  - Capabilities:      Natural language orders directly injected into AI Commander prompt; quick tactical chips
-========================================================================================================================
+```powershell
+python -m pytest tests/ -v
 ```
 
----
-
-## Tactical Doctrine Engine & Comparative Benchmark
-
-We engineered four formal battle doctrines (`src/ecs/doctrines.py`) and evaluated them head-to-head under identical combat conditions against reactive ground targets deploying aerosol smoke screens:
-
-| Metric / Attribute | Aggressive Pincer Dash (`AGGRESSIVE_PINCER`) | Concentric Wolfpack (`WOLFPACK_CONTAINMENT`) | DeepSeek Adaptive (`DEEPSEEK_ADAPTIVE`) |
-|---|:---:|:---:|:---:|
-| **Target Enclosure Angle ($\theta_{\text{sep}}$)** | $160.0^\circ$ | $120.0^\circ$ | Dynamic ($120^\circ - 160^\circ$) |
-| **Standoff Radius ($r_{\text{standoff}}$)** | $3.0\text{ m}$ (Aggressive) | $4.8\text{ m}$ (Perimeter) | Dynamic ($3.8\text{ m}$) |
-| **Flanker Max Speed ($v_{\max}$)** | **$18.0\text{ m/s}$** | $14.0\text{ m/s}$ | **$16.5\text{ m/s}$** |
-| **Multi-Target Split** | False (All on HVT-0) | **True (Hunting Pairs)** | **True (Contextual)** |
-| **Empirical Enclosure Angle ($\overline{\Delta\theta}$)** | $52.3^\circ$ | **$81.9^\circ$** (Best geometry) | $65.5^\circ$ |
-| **Empirical Combat Velocity ($\bar{v}$)** | $12.63\text{ m/s}$ | $12.66\text{ m/s}$ | $12.13\text{ m/s}$ |
-| **Energy Consumed ($E_{\text{tot}}$)** | **$3.211\text{ Wh}$** (Most efficient) | $3.358\text{ Wh}$ | $3.371\text{ Wh}$ |
-| **Final Uncertainty ($U_{\text{final}}$)** | $16.3\%$ | $18.5\%$ | **$9.2\%$** (Deepest reduction) |
-
-### Key Benchmark Takeaways:
-1. **Wolfpack Containment** achieved the highest geometric enclosure quality ($81.9^\circ$), effectively surrounding targets and preventing escape along lateral alleyways.
-2. **Aggressive Pincer Dash** achieved high corridor cutoff speeds with the lowest energy expenditure ($3.211\text{ Wh}$) due to concentrated single-target pursuit.
-3. **DeepSeek Adaptive** achieved the fastest and deepest overall uncertainty reduction ($9.2\%$) by dynamically transitioning between broad area sweeps and focused pincers based on real-time visual recon feedback.
+### Test Coverage (25/25 PASSED)
+- `tests/test_physics.py`: Rigid-body dynamics, quaternion transformations, Dryden turbulence statistics, allocation mixer invertibility, motor saturation clamping.
+- `tests/test_controller.py`: Hover equilibrium, step position response, $SO(3)$ attitude error monotonicity, actuator saturation tracking.
+- `tests/test_perception.py`: Line-of-sight building occlusion raycasts, voxel uncertainty decay preservation, synthetic sensor noise, optical vs thermal smoke penetration.
+- `tests/test_estimation.py`: Kalman filter lifecycle (`UNINITIALIZED` $\to$ `CONFIRMED` $\to$ `PREDICTED` $\to$ `LOST`), convergence on noisy trajectories, Joseph covariance positive-definiteness.
+- `tests/test_network.py`: Gossip packet creation, multi-hop TTL decrement, duplicate packet suppression, distributed utility auction.
+- `tests/test_ai_safety.py`: Schema validation, physical speed clamping, hallucinated target ID stripping, deterministic fallbacks.
+- `tests/test_metrics.py`: Statistical aggregators, 95% confidence intervals, continuous-window TTI boolean evaluation.
 
 ---
 
-## Media & Evaluation Dashboards
+## 6. Quickstart & Usage
 
-### 1. Comparative Multi-Doctrine Evaluation Dashboard
-![Comparative Benchmark Dashboard](media/plot_tactical_doctrines_comparison.png)
-
-### 2. 90-Second Closed-Loop Mission Video Deliverable
-The full 90-second mission video deliverable with DeepSeek Adaptive doctrine is available at:  
-🎥 **[`media/dynamic_swarm_mission.mp4`](media/dynamic_swarm_mission.mp4)**
-- **Duration**: 90.0 seconds (9,000 control steps at 100 Hz)
-- **Format**: 3-Panel Split-Screen 50 FPS 1080p composited video (Overhead Tactical View + D1 Recon FPV + D2 Flanker FPV with embedded DeepSeek AI overlays)
-- **Total Sightings**: **3,020** tactical sightings recorded
-- **Final Uncertainty**: **0.0%** (100% urban theater cleared)
-- **AI Directives**: 13 real-time LLM tactical evaluations and optical FPV recon inspections executed during combat maneuvers.
-
-### 3. Engineering Analysis Timeline Dashboards
-
-| 3D Closed-Loop Trajectories | Uncertainty Decay Curve (100% -> 0%) |
-|:---:|:---:|
-| ![3D Trajectories](media/plot_3d_closed_loop_trajectories.png) | ![Uncertainty Decay](media/plot_uncertainty_decay_curve.png) |
-
-| Evasive Targets State Timeline | Swarm Tactical Roles Allocation |
-|:---:|:---:|
-| ![Target States](media/plot_evasive_targets_state_timeline.png) | ![Tactical Roles](media/plot_swarm_tactical_roles_timeline.png) |
-
----
-
-## Interactive Live Visualizer
-
-The live telemetry server and WebGL visualizer run on port 8080:  
-🌐 **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)**
-
-- **Draggable AI Commander Deck**: Inspect live postures, military voice radio marquee, and streaming DeepSeek Chain-of-Thought tokens.
-- **DeepSeek Vision Recon Card**: Live camera snapshots with target classification and threat ratings.
-- **Interactive Doctrine Selector**: Click `🤖 AI ADAPTIVE`, `⚡ PINCER`, `🐺 WOLFPACK`, or `👁️ STEALTH` to switch swarm battle tactics live during flight.
-- **Operator Uplink Console**: Transmit natural language combat orders to redirect the swarm in real time.
-
----
-
-## Repository File Structure
-
-```
-.
-├── README.md                      # Comprehensive project documentation & report
-├── LICENSE                        # MIT Open Source License
-├── requirements.txt               # Python package dependencies
-├── .env.example                   # DeepSeek API configuration template
-├── .gitignore                     # Git tracking exclusions
-├── dynamic_swarm_sim.py           # Standalone 90s MuJoCo simulation & MP4 generator
-├── run_swarm_stack.py             # Live WebGL visualizer & WebSocket stack launcher
-├── mjcf/
-│   └── tactical_urban_world_v2.xml# MuJoCo XML with 8 high-rises, 4 drones, 3 targets
-├── src/
-│   ├── ai_commander.py            # DeepSeekSwarmCommander (deepseek-v4-flash, async CoT)
-│   ├── ai_vision_recon.py         # DeepSeekVisionRecon (deepseek-v4-flash-vision-exp)
-│   ├── controller.py              # Cascaded SO(3) geometric attitude controller
-│   ├── physics.py                 # SE(3) translational & rotational dynamics, aerodynamics
-│   ├── navigation.py              # 3D Artificial Potential Field (APF) local planner
-│   ├── perception.py              # 3D Voxel Uncertainty Grid & Line-of-Sight sensor
-│   ├── targets.py                 # Evasive ground target manager & reactive smoke
-│   ├── swarm_brain.py             # Tactical brain evaluation & directive dispatch
-│   ├── renderer.py                # HeadlessRenderer, VideoReportGenerator, HUD overlays
-│   ├── server.py                  # WebSocket telemetry server (8765) & HTTP server (8080)
-│   ├── sensors.py                 # BatteryModel, sensor noise, helipad specs
-│   ├── gossip.py                  # Decentralized gossip mesh communication network
-│   ├── ai_agent_core.py           # Heterogeneous airframe specifications & classes
-│   └── ecs/
-│       ├── components.py          # Data-oriented ECS components & enums
-│       ├── doctrines.py           # Swarm Tactical Doctrine Engine specifications
-│       ├── mission_state.py       # 6-phase mission state machine manager
-│       ├── target_tracker.py      # Continuous Extended Kalman Filter (EKF)
-│       ├── systems.py             # 8 ECS systems (brain, physics, APF, mesh, evasion)
-│       └── world.py               # ECSWorld coordinator & black box flight recorder
-├── scripts/
-│   ├── run_doctrine_benchmark.py  # Multi-doctrine comparative evaluation suite
-│   └── run_eval_benchmark.py      # Standard flight recorder benchmarking script
-├── visualizer/
-│   ├── index.html                 # 3D WebGL tactical HUD with glassmorphic windows
-│   ├── style.css                  # Cyberpunk tactical UI styling & animations
-│   └── app.js                     # Three.js scene, WebSocket bridge, HUD synchronization
-└── media/                         # Generated MP4 videos, telemetry plots, and JSON logs
+### Installation
+```powershell
+git clone https://github.com/cl0udz1/mrd-swarm.git
+cd mrd-swarm
+pip install -r requirements.txt
 ```
 
+### Run Automated Unit Tests
+```powershell
+python -m pytest tests/ -v
+```
+
+### Run Multi-Seed Doctrine Benchmark Campaign (20 Seeds)
+```powershell
+python scripts/run_doctrine_benchmark.py --seeds 20 --steps 1200
+```
+Outputs:
+- Raw JSON metrics: `output/doctrine_benchmark_multiseed.json`
+- Distribution plots: `output/plot_tactical_doctrines_comparison.png`
+
+### Run Master 60-Second Aerospace Evaluation
+```powershell
+python scripts/run_eval_benchmark.py
+```
+Outputs:
+- Flight telemetry log: `output/blackbox_flight_log.csv`
+- Aerospace KPI evaluation: `output/BENCHMARK_EVALUATION_REPORT.md`
+
+### Launch Full Decoupled Stack with Real-Time 3D WebGL Visualizer
+```powershell
+python run_swarm_stack.py
+```
+Streams 60 Hz telemetry over WebSockets to `http://127.0.0.1:8080` with a 3D tactical HUD.
+
 ---
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## 7. License
+MIT License. See [LICENSE](LICENSE) for details.

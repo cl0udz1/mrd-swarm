@@ -44,3 +44,8 @@ venv.bak/
 # OS generated
 .DS_Store
 Thumbs.db
+
+# Large local simulation binaries
+output/*.mp4
+output/*.csv
+

@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Project Path Setup
-PROJECT_DIR = Path("c:/cheetah/mrd-swarm")
+PROJECT_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = PROJECT_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(PROJECT_DIR))
@@ -606,7 +606,7 @@ def run_closed_loop_swarm_mission(
         "control_steps": n_steps,
         "total_hvt_sightings": len(log_all_sightings),
         "final_uncertainty_pct": float(current_u),
-        "target_tracking_coverage_pct": 100.0,
+        "target_tracking_coverage_pct": round((len(log_all_sightings) / max(1, n_steps)) * 100.0, 1),
         "drone_fleet": {
             i: {
                 "class": HETEROGENEOUS_SPECS[i].drone_class.value,
@@ -638,7 +638,7 @@ def run_closed_loop_swarm_mission(
             "visual_description": vision_recon.get_latest_card().visual_description,
             "tactical_recommendation": vision_recon.get_latest_card().tactical_recommendation,
         },
-        "verification_status": "PASS",
+        "verification_status": "PASS" if (current_u < 45.0 and len(log_all_sightings) > 0) else "FAIL",
     }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

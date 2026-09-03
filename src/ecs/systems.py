@@ -14,8 +14,9 @@ import math
 from typing import Dict, List, Tuple, Optional, Any, Set
 import numpy as np
 
-from ..physics import GRAVITY, quat_to_rotation_matrix
-from ..controller import CascadedQuadrotorController
+from ..physics import GRAVITY, quat_to_rotation_matrix, solve_motor_thrusts
+from ..config.airframes import FLEET_CONFIGS
+from ..controller import GeometricSE3Controller
 from ..perception import VoxelUncertaintyGrid, LineOfSightSensor
 from ..navigation import APFReactiveNavigator, NavSetpoint
 from .components import (
@@ -127,6 +128,8 @@ def perception_system(
     for d_id, trans in drone_transforms.items():
         sensor = sensors[d_id]
         sensor.visible_targets.clear()
+        if hasattr(sensor, "noisy_measurements"):
+            sensor.noisy_measurements.clear()
 
         # Update 3D Voxel Uncertainty Field
         uncertainty_grid.update_coverage(
@@ -162,6 +165,15 @@ def perception_system(
             if vis and conf > 0.25:
                 sensor.visible_targets[t_id] = conf
                 all_spotted_targets.add(t_id)
+
+                # Synthetic noisy measurement generation (range-dependent noise)
+                dist = float(np.linalg.norm(trans.position[:2] - t_trans.position[:2]))
+                sigma_pos = max(0.20, dist * 0.035)  # min 20cm, 3.5% of range
+                noise = np.random.normal(0.0, sigma_pos, size=2)
+                noisy_pos = t_trans.position[:2] + noise
+                cov_r = np.eye(2, dtype=np.float64) * (sigma_pos ** 2)
+                if hasattr(sensor, "noisy_measurements"):
+                    sensor.noisy_measurements[t_id] = (noisy_pos, cov_r, conf)
 
     return all_spotted_targets
 
@@ -427,14 +439,16 @@ def brain_decision_system(
     uncertainty_grid: VoxelUncertaintyGrid,
     sim_time: float,
     mission_mgr: Any,   # MissionStateManager
-    tracker: Any,        # EKFTargetTracker
+    tracker: Any,        # KalmanTargetTracker
     ai_directive: Optional[Any] = None, # TacticalDirective from DeepSeek AI Commander
     doctrine: TacticalDoctrineID | str = TacticalDoctrineID.DEEPSEEK_ADAPTIVE,
+    targets: Optional[Dict[int, Any]] = None,
+    vision_observation: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Enhanced tactical brain with 8 intelligence systems & parameterized doctrines:
     1. Multi-phase mission state machine
-    2. EKF target track persistence
+    2. Kalman target track persistence on noisy synthetic observations
     3. Battery-aware RTB planning
     4. Coordinated pincer geometry (angular enclosure)
     5. Target priority scoring with AI Commander weighting
@@ -459,15 +473,30 @@ def brain_decision_system(
     doctrine_cfg = get_doctrine_config(resolved_doctrine)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 1. EKF PREDICTION + MEASUREMENT UPDATE
+    # 1. KALMAN PREDICTION + NOISY SYNTHETIC MEASUREMENT UPDATE
     # ══════════════════════════════════════════════════════════════════════════
     tracker.predict(dt * 10)  # brain runs at 10Hz, predict over 0.1s
 
-    # Feed sensor measurements into EKF
+    # Feed noisy synthetic observations into Kalman tracker (never ground truth)
     for did, sensor in sensors.items():
-        for tid, conf in sensor.visible_targets.items():
-            if conf > 0.25 and tid in target_transforms:
-                tracker.update(tid, target_transforms[tid].position[:2])
+        if hasattr(sensor, "noisy_measurements"):
+            for tid, meas in sensor.noisy_measurements.items():
+                noisy_pos, cov_r, conf = meas
+                if conf > 0.20:
+                    tracker.update(tid, noisy_pos, cov_r)
+        else:
+            for tid, conf in sensor.visible_targets.items():
+                if conf > 0.25 and tid in target_transforms:
+                    tracker.update(tid, target_transforms[tid].position[:2])
+
+    # Record estimation quality metrics against ground truth (STRICTLY FOR EVALUATION)
+    for tid in tracker.get_tracked_ids():
+        if tid in target_transforms:
+            tracker.record_ground_truth_for_evaluation(
+                tid,
+                target_transforms[tid].position[:2],
+                target_transforms[tid].velocity[:2],
+            )
 
     tracked_ids = tracker.get_tracked_ids()
     lost_ids = tracker.get_lost_ids()
@@ -619,11 +648,14 @@ def brain_decision_system(
         v_tgt = np.array([v_tgt_2d[0], v_tgt_2d[1], 0.0])
         target_speed = float(np.linalg.norm(v_tgt[:2]))
 
-        # Check if any target has active smoke
-        smoke_active = any(
-            hasattr(target_transforms.get(tid), 'velocity') and tid in detected_target_ids
-            for tid in tracker.get_confirmed_ids()
-        )
+        # Check active smoke screen on primary target
+        smoke_active = False
+        if targets is not None and primary_tid in targets:
+            smoke_active = getattr(targets[primary_tid], "smoke_active", False)
+        elif primary_tid in target_transforms:
+            smoke_active = getattr(target_transforms[primary_tid], "smoke_active", False)
+        if vision_observation and vision_observation.get("smoke_detected"):
+            smoke_active = True
 
         # 7. UTILITY-BASED TASK ALLOCATION
         # Score each combat drone for TRACKER role
@@ -631,10 +663,12 @@ def brain_decision_system(
         for did in combat_drones_for_hunt:
             bat = batteries[did]
             soc = _get_battery_soc_pct(bat)
+            has_thermal = FLEET_CONFIGS[did].has_thermal if did in FLEET_CONFIGS else False
+            max_spd = FLEET_CONFIGS[did].max_speed_mps if did in FLEET_CONFIGS else 10.0
             u = _compute_task_utility(
                 did, "TRACKER", drone_transforms[did].position, drone_transforms[did].velocity,
-                p_tgt, soc, _DRONE_HAS_THERMAL.get(did, False), smoke_active,
-                _DRONE_MAX_SPEEDS.get(did, 10.0), target_speed,
+                p_tgt, soc, has_thermal, smoke_active,
+                max_spd, target_speed,
             )
             tracker_utilities.append((did, u))
         tracker_utilities.sort(key=lambda x: x[1], reverse=True)
@@ -645,24 +679,20 @@ def brain_decision_system(
         bearing_deg = float(np.degrees(np.arctan2(
             p_tgt[1] - drone_transforms[tracker_did].position[1],
             p_tgt[0] - drone_transforms[tracker_did].position[0],
-        )))
-
-        b_rad = np.radians(bearing_deg)
-        tracker_goal = np.array([
-            p_tgt[0] - doctrine_cfg.standoff_radius_m * np.cos(b_rad),
-            p_tgt[1] - doctrine_cfg.standoff_radius_m * np.sin(b_rad),
-            doctrine_cfg.tracker_altitude_m,
-        ])
+        ))) % 360.0
 
         tacticals[tracker_did].role = TacticalRoleID.TRACKER
         tacticals[tracker_did].assigned_target_id = primary_tid
-        tacticals[tracker_did].goal_position = tracker_goal
-        tacticals[tracker_did].desired_speed = doctrine_cfg.tracker_desired_speed_mps
-        tacticals[tracker_did].active_tool = f"laser_designate_hvt(HVT-{primary_tid})"
-        tacticals[tracker_did].threat_score = primary_score
+        tacticals[tracker_did].goal_position = np.array([p_tgt[0], p_tgt[1], doctrine_cfg.tracker_altitude_m])
+        # Respect validated AI desired speed if provided, bounded by doctrine
+        ai_speed = None
+        if ai_directive and tracker_did in ai_directive.drone_assignments:
+            ai_speed = ai_directive.drone_assignments[tracker_did].get("desired_speed")
+        tacticals[tracker_did].desired_speed = ai_speed if ai_speed is not None else doctrine_cfg.tracker_desired_speed_mps
+        tacticals[tracker_did].active_tool = f"laser_designate(HVT-{primary_tid})"
         tacticals[tracker_did].reasoning = (
-            f"TRACK HVT-{primary_tid} [{doctrine_cfg.name[:14]}] | dist={standoff_d:.1f}m "
-            f"spd={target_speed:.1f}m/s prio={primary_score:.2f} trk={primary_track.state.name}"
+            f"TRACK HVT-{primary_tid} [{doctrine_cfg.name}] | d={standoff_d:.1f}m brg={bearing_deg:.0f}° "
+            f"score={primary_score:.2f} alt={doctrine_cfg.tracker_altitude_m:.1f}m"
         )
 
         # Remaining combat drones → FLANKER (with doctrine pincer geometry)
@@ -672,10 +702,12 @@ def brain_decision_system(
             for did in remaining:
                 bat = batteries[did]
                 soc = _get_battery_soc_pct(bat)
+                has_thermal = FLEET_CONFIGS[did].has_thermal if did in FLEET_CONFIGS else False
+                max_spd = FLEET_CONFIGS[did].max_speed_mps if did in FLEET_CONFIGS else 10.0
                 u = _compute_task_utility(
                     did, "FLANKER", drone_transforms[did].position, drone_transforms[did].velocity,
-                    p_tgt, soc, _DRONE_HAS_THERMAL.get(did, False), smoke_active,
-                    _DRONE_MAX_SPEEDS.get(did, 10.0), target_speed,
+                    p_tgt, soc, has_thermal, smoke_active,
+                    max_spd, target_speed,
                 )
                 flanker_utilities.append((did, u))
             flanker_utilities.sort(key=lambda x: x[1], reverse=True)
@@ -890,20 +922,31 @@ def se3_control_system(
         gyroscopic = np.cross(omega, J * omega)
         tau = -k_R * e_R - k_omega * e_omega + gyroscopic
 
-        # Clamp torque to physical limits
-        max_torque = 0.05  # N·m (reasonable for nano-quadrotor)
-        tau = np.clip(tau, -max_torque, max_torque)
+        # Clamp torque to airframe physical actuator limits
+        airframe = FLEET_CONFIGS[did]
+        max_tau_xy = airframe.arm_length_m * airframe.max_thrust_per_motor_n * 2.0
+        max_tau_z = (airframe.k_m / (airframe.k_f + 1e-9)) * airframe.max_thrust_per_motor_n * 4.0
+        tau = np.array([
+            np.clip(tau[0], -max_tau_xy, max_tau_xy),
+            np.clip(tau[1], -max_tau_xy, max_tau_xy),
+            np.clip(tau[2], -max_tau_z, max_tau_z),
+        ], dtype=np.float64)
+
+        # 4-Rotor Thrust Allocation & Saturation Clamping
+        t_motors, is_saturated = solve_motor_thrusts(total_thrust_N, tau, airframe)
+        phys.motor_thrusts = t_motors / airframe.max_thrust_per_motor_n
+        actual_total_thrust = float(np.sum(t_motors))
+        phys.total_thrust_N = actual_total_thrust
 
         # ═══ 3. ROTATIONAL DYNAMICS INTEGRATION ════════════════════════════════
         # Euler's rotational equation: J * dω/dt = τ - ω × Jω
         # → dω/dt = J^{-1} * (τ - ω × Jω) = J^{-1} * τ  (gyroscopic already in τ)
         J_inv = 1.0 / J  # diagonal inertia → element-wise inverse
-        # Remove double-counting: τ already includes gyroscopic term
         alpha = J_inv * (tau - gyroscopic)  # angular acceleration
         trans.angular_velocity = trans.angular_velocity + alpha * dt
 
-        # Clamp angular velocity to physical limits (~20 rad/s max body rate)
-        max_omega = 20.0
+        # Clamp angular velocity to airframe max body rate
+        max_omega = airframe.max_body_rate_rad_s
         omega_norm = float(np.linalg.norm(trans.angular_velocity))
         if omega_norm > max_omega:
             trans.angular_velocity = (trans.angular_velocity / omega_norm) * max_omega
@@ -923,18 +966,18 @@ def se3_control_system(
         q_norm = np.linalg.norm(trans.quaternion)
         if q_norm > 1e-6:
             trans.quaternion /= q_norm
-        # Ensure canonical form (w > 0)
         if trans.quaternion[0] < 0:
             trans.quaternion = -trans.quaternion
 
         # ═══ 4. TRANSLATIONAL DYNAMICS ══════════════════════════════════════════
         # Thrust in world frame through CURRENT (not desired) orientation
         R_current = quat_to_rotation_matrix(trans.quaternion)
-        f_thrust_world = R_current @ np.array([0.0, 0.0, total_thrust_N])
+        f_thrust_world = R_current @ np.array([0.0, 0.0, actual_total_thrust])
 
-        # Aerodynamic drag
+        # Aerodynamic drag proportional to airframe frontal area
         v_rel = trans.velocity - wind_vel
-        f_drag = -0.5 * 1.225 * 0.47 * 0.015 * float(np.linalg.norm(v_rel)) * v_rel
+        ref_area = 2.0 * (airframe.arm_length_m ** 2)
+        f_drag = -0.5 * 1.225 * 0.45 * ref_area * float(np.linalg.norm(v_rel)) * v_rel
 
         # Newton's second law
         acc = (f_thrust_world + np.array([0.0, 0.0, -phys.mass * GRAVITY]) + f_drag) / phys.mass
@@ -942,9 +985,9 @@ def se3_control_system(
         # Symplectic Euler integration
         trans.velocity += acc * dt
 
-        # Clamp velocity to max vehicle speed
+        # Clamp velocity to airframe max vehicle speed
         speed = float(np.linalg.norm(trans.velocity))
-        max_speed = 18.0
+        max_speed = airframe.max_speed_mps
         if speed > max_speed:
             trans.velocity = (trans.velocity / speed) * max_speed
 

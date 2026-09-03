@@ -117,21 +117,22 @@ class DeepSeekVisionRecon:
         self._is_in_flight = False
         self._last_query_time = 0.0
 
+        self.enabled = bool(self.api_key and self.api_key.startswith("sk-"))
+
         self._set_default_card()
 
     def _set_default_card(self):
-        """Initial dummy placeholder card."""
         self.latest_card = VisionIntelCard(
             timestamp=time.time(),
             drone_id=1,
             camera_mode="RGB_EO",
             target_detected=False,
-            target_type="STANDBY",
+            target_type="NONE",
             threat_level="LOW",
             smoke_detected=False,
-            visual_description="Recon optical sensor initialized. Searching urban corridors.",
-            tactical_recommendation="Maintain altitude and scan designated sector frontiers.",
-            reasoning_chain="Optical feed active. Awaiting tactical sighting to trigger deep visual analysis.",
+            visual_description="Awaiting initial sensor acquisition.",
+            tactical_recommendation="Maintain wide sector reconnaissance sweep.",
+            reasoning_chain="Visual agent initialized; stand-by for video stream.",
             thumbnail_data_url="",
             latency_s=0.0,
             model=self.model,
@@ -152,6 +153,9 @@ class DeepSeekVisionRecon:
         Asynchronously submits an FPV camera frame for DeepSeek Vision inspection.
         Non-blocking: returns immediately.
         """
+        if not self.enabled:
+            return
+
         now = time.time()
         with self._lock:
             if self._is_in_flight:
@@ -277,3 +281,24 @@ class DeepSeekVisionRecon:
         finally:
             with self._lock:
                 self._is_in_flight = False
+
+    def get_active_vision_observation(self, max_age_s: float = 6.0) -> Optional[Dict[str, Any]]:
+        """
+        Returns structured vision observation if the latest report is fresh (< max_age_s).
+        Enables closed-loop fusion into the tactical state estimator.
+        """
+        with self._lock:
+            card = self.latest_card
+        if not card or not card.target_detected:
+            return None
+        if time.time() - card.timestamp > max_age_s:
+            return None  # Stale observation expired
+        return {
+            "timestamp": card.timestamp,
+            "drone_id": card.drone_id,
+            "target_type": card.target_type,
+            "threat_level": card.threat_level,
+            "smoke_detected": card.smoke_detected,
+            "tactical_recommendation": card.tactical_recommendation,
+        }
+

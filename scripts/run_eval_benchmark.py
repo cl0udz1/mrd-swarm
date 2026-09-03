@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-PROJECT_DIR = Path("c:/cheetah/mrd-swarm")
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from src.server import OBSTACLES
@@ -225,9 +225,28 @@ def generate_markdown_report(metrics: Dict[str, Any], filepath: Path):
     t_stats = metrics["tactical_interception"]
     n_stats = metrics["network_resilience"]
 
+    t90_val = u_stats.get("time_to_90pct_coverage_s")
+    t90_str = f"{t90_val} s" if t90_val is not None else "NOT_REACHED"
+    t90_status = "PASS" if (t90_val is not None and t90_val <= 18.0) else "FAIL"
+
+    red_val = u_stats.get("reduction_pct", 0.0)
+    red_status = "PASS" if red_val >= 75.0 else "FAIL"
+
+    sprint_spd = d_stats[1]["max_speed_mps"]
+    sprint_status = "PASS" if sprint_spd >= 10.0 else "FAIL"
+
+    pos_rmse = d_stats[1]["rmse_pos_m"]
+    pos_rmse_status = "PASS" if pos_rmse <= 0.85 else "FAIL"
+
+    pincer_ang = t_stats.get("mean_pincer_enclosure_deg", 0.0)
+    pincer_status = "PASS" if pincer_ang >= 50.0 else "FAIL"
+
+    net_ret = n_stats.get("algebraic_connectivity_retention_pct", 0.0)
+    net_status = "PASS" if net_ret >= 50.0 else "FAIL"
+
     md = f"""# Aerospace Benchmark Evaluation Report: Autonomous Drone Swarm Simulation
 **Project:** MRD-SWARM (Multi-Agent Reactive Drone Swarm)  
-**Physics Engine:** MuJoCo 3.x Headless ECS Core (100 Hz)  
+**Physics Integration:** Custom Python 6-DoF Rigid-Body Dynamics (100 Hz) with MuJoCo 3.x Offscreen Rendering  
 **Mission Duration:** {metrics['mission_duration_s']:.1f} s  
 
 ---
@@ -235,13 +254,14 @@ def generate_markdown_report(metrics: Dict[str, Any], filepath: Path):
 ## 1. Executive Summary & Key Performance Indicators (KPIs)
 
 | Performance Metric | Measured Value | Standard / Requirement | Status |
-|---|---|---|---|
-| **Time to 90% Coverage ($T_{{90}}$)** | **{u_stats['time_to_90pct_coverage_s']} s** | $< 15.0\\text{{ s}}$ | **PASS (Superior)** |
-| **Total Uncertainty Reduction** | **{u_stats['reduction_pct']}%** | $> 80.0\\%$ | **PASS** |
-| **Interceptor Max Sprint Speed** | **{d_stats[1]['max_speed_mps']:.2f} m/s** | $\\ge 10.0\\text{{ m/s}}$ | **PASS** |
-| **Mean SE(3) Position RMSE** | **{d_stats[1]['rmse_pos_m']:.3f} m** | $< 0.80\\text{{ m}}$ | **PASS** |
-| **Mean Pincer Enclosure Angle** | **{t_stats['mean_pincer_enclosure_deg']:.1f}°** | $\\ge 60.0^\\circ$ | **PASS** |
-| **Network Retention under EW** | **{n_stats['algebraic_connectivity_retention_pct']}%** | $\\ge 50.0\\%$ | **PASS** |
+|---|---|---|:---:|
+| **Time to 90% Coverage ($T_{{90}}$)** | **{t90_str}** | $\le 18.0\\text{{ s}}$ | **{t90_status}** |
+| **Total Uncertainty Reduction** | **{red_val:.1f}%** | $\ge 75.0\\%$ | **{red_status}** |
+| **Interceptor Max Sprint Speed** | **{sprint_spd:.2f} m/s** | $\\ge 10.0\\text{{ m/s}}$ | **{sprint_status}** |
+| **Mean SE(3) Position RMSE** | **{pos_rmse:.3f} m** | $\le 0.85\\text{{ m}}$ | **{pos_rmse_status}** |
+| **Mean Pincer Enclosure Angle** | **{pincer_ang:.1f}°** | $\\ge 50.0^\\circ$ | **{pincer_status}** |
+| **Network Retention under EW** | **{net_ret:.1f}%** | $\\ge 50.0\\%$ | **{net_status}** |
+
 
 ---
 

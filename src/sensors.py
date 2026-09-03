@@ -1,445 +1,259 @@
+# -*- coding: utf-8 -*-
 """
-sensors.py — Sensor models, noise injection, and reconnaissance pipelines
-for the MRD-Swarm quadrotor.
+sensors.py — Synthetic Sensor Models, Noise Injection & Measurement Pipelines
 
-Includes:
-    - IMU (accelerometer + gyroscope) with bias drift and Gaussian noise
-    - Rangefinder array with dropout and noise
-    - Camera frustum / target-in-view detection
-    - Battery discharge model
+Provides:
+- SyntheticTargetSensor: Explicit measurement model separating ground truth from observations:
+    GROUND TRUTH → Range/FOV → Building Occlusion → Smoke Attenuation → Additive Noise → Dropout → Measurement
+- IMUSensor: 6-axis accelerometer & gyroscope with bias drift and Gaussian white noise
+- BatteryModel: Physical electrochemical energy consumption driven by AirframeConfig
+- HelipadZone: Recovery pad definitions
 """
 
 from __future__ import annotations
-
-import numpy as np
-from numpy.typing import NDArray
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict, Any
+import numpy as np
+from numpy.typing import NDArray
 
+from .config.airframes import AirframeConfig, get_airframe_config
 from .physics import (
-    ACCEL_NOISE_STD, ACCEL_BIAS_DRIFT,
-    GYRO_NOISE_STD, GYRO_BIAS_DRIFT,
-    RANGEFINDER_NOISE_STD, RANGEFINDER_DROPOUT_PROB, RANGEFINDER_MAX_RANGE,
-    CAMERA_LATENCY_STEPS,
-    BATTERY_CAPACITY_WH, P_HOVER_BASE, P_AVIONICS, P_SENSOR_PAYLOAD,
-    DRONE_MASS, GRAVITY,
-    quat_to_rotation_matrix, compute_power_consumption,
+    GRAVITY,
+    quat_to_rotation_matrix,
 )
 
 
 @dataclass
-class IMUReading:
-    """Processed IMU measurement with noise."""
-    acceleration: NDArray[np.float64]   # m/s², body frame, with noise + bias
-    angular_velocity: NDArray[np.float64]  # rad/s, body frame, with noise + bias
-    timestamp: float
-
-
-@dataclass
-class RangefinderReading:
-    """Single rangefinder measurement."""
-    distance: float          # meters, NaN if dropout
-    is_valid: bool
-    sensor_name: str
-
-
-@dataclass
-class ProximityArray:
-    """Multi-directional proximity sensor array."""
-    forward: RangefinderReading
-    left: RangefinderReading
-    right: RangefinderReading
-    rear: RangefinderReading
-    down: RangefinderReading   # altimeter
-
-
-@dataclass
-class TargetObservation:
-    """Detected target in camera frame."""
+class NoisyTargetMeasurement:
+    """
+    Synthetic sensor measurement of a ground target.
+    Produced by onboard sensors with realistic noise, dropout, and latency.
+    """
     target_id: int
-    pixel_x: int              # image coordinate u
-    pixel_y: int              # image coordinate v
-    pixel_width: int          # bounding box width
-    pixel_height: int         # bounding box height
-    distance: float           # estimated range (m)
-    bearing: float            # bearing angle (rad) from camera forward
-    confidence: float         # detection confidence [0, 1]
-    in_fov: bool              # within camera field of view
+    measured_pos_2d: NDArray[np.float64]  # [x, y] in world coordinates with additive noise
+    range_m: float                        # Measured distance to target (m)
+    bearing_rad: float                    # Measured relative bearing (rad)
+    confidence: float                     # Observation confidence in [0, 1]
+    timestamp: float                      # Simulation timestamp (s)
+    drone_id: int                         # Detecting drone ID
+    is_thermal: bool                      # Sighting made via thermal IR
+    covariance_r: NDArray[np.float64]     # 2x2 measurement noise covariance matrix R
 
 
 @dataclass
-class BatteryState:
-    """Battery telemetry."""
-    capacity_wh: float        # remaining capacity (Wh)
-    percentage: float         # [0, 100]
-    voltage: float            # estimated voltage (V)
-    is_critical: bool         # < 10%
-    total_energy_consumed_wh: float
+class HelipadZone:
+    name: str
+    position: NDArray[np.float64]         # [x, y, z] helipad center
+    radius_m: float                       # usable landing radius
+    altitude_m: float                     # rooftop surface altitude
 
 
-class IMUSensor:
+HELIPAD_ALPHA = HelipadZone(
+    name="Helipad Alpha (Depot Roof)",
+    position=np.array([15.0, -15.0, 5.0]),
+    radius_m=3.0,
+    altitude_m=5.0,
+)
+
+HELIPAD_BRAVO = HelipadZone(
+    name="Helipad Bravo (Complex Roof)",
+    position=np.array([-14.0, 12.0, 6.0]),
+    radius_m=3.0,
+    altitude_m=6.0,
+)
+
+HELIPADS: List[HelipadZone] = [HELIPAD_ALPHA, HELIPAD_BRAVO]
+
+
+class SyntheticTargetSensor:
     """
-    6-axis IMU model with realistic noise characteristics.
-
-    Noise model:
-        a_measured = a_true + bias_a + N(0, σ_a²)
-        ω_measured = ω_true + bias_ω + N(0, σ_ω²)
-
-    Bias evolves as random walk:
-        bias(k+1) = bias(k) + N(0, σ_drift²)
-    """
-
-    def __init__(
-        self,
-        accel_noise_std: float = ACCEL_NOISE_STD,
-        gyro_noise_std: float = GYRO_NOISE_STD,
-        accel_bias_drift: float = ACCEL_BIAS_DRIFT,
-        gyro_bias_drift: float = GYRO_BIAS_DRIFT,
-        seed: int | None = None,
-    ):
-        self.rng = np.random.default_rng(seed)
-        self.accel_noise_std = accel_noise_std
-        self.gyro_noise_std = gyro_noise_std
-        self.accel_bias_drift = accel_bias_drift
-        self.gyro_bias_drift = gyro_bias_drift
-
-        # Internal bias state
-        self.accel_bias = np.zeros(3)
-        self.gyro_bias = np.zeros(3)
-
-    def reset(self) -> None:
-        self.accel_bias = np.zeros(3)
-        self.gyro_bias = np.zeros(3)
-
-    def read(
-        self,
-        true_acceleration: NDArray[np.float64],
-        true_angular_velocity: NDArray[np.float64],
-        timestamp: float,
-    ) -> IMUReading:
-        """
-        Generate noisy IMU reading from ground-truth values.
-
-        Parameters
-        ----------
-        true_acceleration : (3,) body-frame acceleration (including gravity)
-        true_angular_velocity : (3,) body-frame angular velocity
-        timestamp : current time
-
-        Returns
-        -------
-        IMUReading with noise and bias injected
-        """
-        # Evolve bias (random walk)
-        self.accel_bias += self.rng.normal(0, self.accel_bias_drift, 3)
-        self.gyro_bias += self.rng.normal(0, self.gyro_bias_drift, 3)
-
-        # Clip bias to prevent runaway
-        self.accel_bias = np.clip(self.accel_bias, -0.5, 0.5)
-        self.gyro_bias = np.clip(self.gyro_bias, -0.1, 0.1)
-
-        # Add noise + bias
-        noisy_accel = (
-            true_acceleration
-            + self.accel_bias
-            + self.rng.normal(0, self.accel_noise_std, 3)
-        )
-        noisy_gyro = (
-            true_angular_velocity
-            + self.gyro_bias
-            + self.rng.normal(0, self.gyro_noise_std, 3)
-        )
-
-        return IMUReading(
-            acceleration=noisy_accel,
-            angular_velocity=noisy_gyro,
-            timestamp=timestamp,
-        )
-
-
-class RangefinderSensor:
-    """
-    Single-point rangefinder with noise and dropout model.
-
-    Dropout simulates measurement failures (surface reflectivity, angle of incidence).
+    Models onboard electro-optical (EO) and uncooled LWIR thermal cameras.
+    
+    Transforms ground-truth target kinematics into realistic noisy measurements:
+    1. Distance attenuation and camera field-of-view (FOV) geometric cone.
+    2. Ray-box occlusion testing against solid urban architecture.
+    3. Aerosol smoke attenuation (blocks optical EO completely; thermal penetrates).
+    4. Polar range/bearing noise mapped into Cartesian covariance matrix R.
+    5. Stochastic measurement dropout (missed detection probability).
     """
 
     def __init__(
         self,
-        noise_std: float = RANGEFINDER_NOISE_STD,
-        dropout_prob: float = RANGEFINDER_DROPOUT_PROB,
-        max_range: float = RANGEFINDER_MAX_RANGE,
-        sensor_name: str = "rangefinder",
-        seed: int | None = None,
+        drone_id: int,
+        range_noise_std_pct: float = 0.03,  # 3% of range
+        bearing_noise_std_deg: float = 1.0,  # 1.0 deg bearing noise
+        dropout_probability: float = 0.03,   # 3% random sensor packet loss
+        seed: Optional[int] = None,
     ):
-        self.rng = np.random.default_rng(seed)
-        self.noise_std = noise_std
-        self.dropout_prob = dropout_prob
-        self.max_range = max_range
-        self.sensor_name = sensor_name
+        self.drone_id = drone_id
+        self.airframe: AirframeConfig = get_airframe_config(drone_id)
+        self.range_noise_pct = range_noise_std_pct
+        self.bearing_noise_rad = math.radians(bearing_noise_std_deg)
+        self.dropout_prob = dropout_probability
+        self.rng = np.random.RandomState(seed if seed is not None else (100 + drone_id))
 
-    def read(self, true_distance: float) -> RangefinderReading:
-        """
-        Generate noisy rangefinder reading.
-
-        Parameters
-        ----------
-        true_distance : ground-truth distance in meters
-
-        Returns
-        -------
-        RangefinderReading
-        """
-        # Dropout check
-        if self.rng.random() < self.dropout_prob:
-            return RangefinderReading(
-                distance=float('nan'),
-                is_valid=False,
-                sensor_name=self.sensor_name,
-            )
-
-        # Clamp to max range
-        if true_distance > self.max_range:
-            return RangefinderReading(
-                distance=self.max_range,
-                is_valid=True,
-                sensor_name=self.sensor_name,
-            )
-
-        # Add Gaussian noise
-        noisy_dist = true_distance + self.rng.normal(0, self.noise_std)
-        noisy_dist = max(noisy_dist, 0.0)
-
-        return RangefinderReading(
-            distance=noisy_dist,
-            is_valid=True,
-            sensor_name=self.sensor_name,
-        )
-
-
-class ProximityArraySensor:
-    """Multi-directional proximity sensor array (5 directions)."""
-
-    def __init__(self, seed: int | None = None):
-        base_seed = seed if seed is not None else 42
-        self.down = RangefinderSensor(sensor_name="altimeter", seed=base_seed)
-        self.forward = RangefinderSensor(sensor_name="prox_forward", seed=base_seed + 1)
-        self.left = RangefinderSensor(sensor_name="prox_left", seed=base_seed + 2)
-        self.right = RangefinderSensor(sensor_name="prox_right", seed=base_seed + 3)
-        self.rear = RangefinderSensor(sensor_name="prox_rear", seed=base_seed + 4)
-
-    def read(
+    def observe(
         self,
-        dist_down: float,
-        dist_forward: float,
-        dist_left: float,
-        dist_right: float,
-        dist_rear: float,
-    ) -> ProximityArray:
-        return ProximityArray(
-            forward=self.forward.read(dist_forward),
-            left=self.left.read(dist_left),
-            right=self.right.read(dist_right),
-            rear=self.rear.read(dist_rear),
-            down=self.down.read(dist_down),
-        )
-
-
-class ReconCamera:
-    """
-    Reconnaissance camera with frustum-based target detection.
-
-    Projects 3D world coordinates to 2D image coordinates and checks
-    field-of-view constraints for target-in-view determination.
-    """
-
-    def __init__(
-        self,
-        hfov: float = 70.0,       # horizontal FOV in degrees
-        vfov: float = 55.0,       # vertical FOV in degrees
-        image_width: int = 640,
-        image_height: int = 480,
-        max_detection_range: float = 50.0,  # meters
-        latency_steps: int = CAMERA_LATENCY_STEPS,
-    ):
-        self.hfov = np.radians(hfov)
-        self.vfov = np.radians(vfov)
-        self.image_width = image_width
-        self.image_height = image_height
-        self.max_detection_range = max_detection_range
-        self.latency_steps = latency_steps
-
-        # Focal lengths in pixels
-        self.fx = (image_width / 2.0) / np.tan(self.hfov / 2.0)
-        self.fy = (image_height / 2.0) / np.tan(self.vfov / 2.0)
-        self.cx = image_width / 2.0
-        self.cy = image_height / 2.0
-
-        # Latency buffer
-        self._buffer: list[NDArray[np.float64]] = []
-
-    def project_target(
-        self,
-        drone_position: NDArray[np.float64],
-        drone_quaternion: NDArray[np.float64],
-        target_position: NDArray[np.float64],
-        target_radius: float = 0.5,
-    ) -> Optional[TargetObservation]:
+        drone_pos: NDArray[np.float64],
+        drone_quat: NDArray[np.float64],
+        target_id: int,
+        true_target_pos: NDArray[np.float64],
+        is_occluded_fn: Any,                  # Callable(p_start, p_end) -> bool
+        target_smoke_active: bool = False,
+        sim_time: float = 0.0,
+    ) -> Optional[NoisyTargetMeasurement]:
         """
-        Check if target is within camera FOV and compute image coordinates.
-
-        Uses pinhole camera model:
-            [u]   [fx  0  cx] [X_c/Z_c]
-            [v] = [ 0 fy  cy]·[Y_c/Z_c]
-            [1]   [ 0  0   1] [   1    ]
-
-        where [X_c, Y_c, Z_c] = R^T @ (p_target - p_drone) in camera frame.
-
-        Parameters
-        ----------
-        drone_position : (3,) world position
-        drone_quaternion : (4,) [w,x,y,z]
-        target_position : (3,) world position
-        target_radius : bounding sphere radius (m)
-
-        Returns
-        -------
-        TargetObservation or None if not in FOV
+        Attempt to detect target. Returns NoisyTargetMeasurement if observed, None otherwise.
         """
-        R = quat_to_rotation_matrix(drone_quaternion)
+        diff = true_target_pos - drone_pos
+        true_dist = float(np.linalg.norm(diff))
 
-        # Vector from drone to target in world frame
-        delta_world = target_position - drone_position
-        distance = np.linalg.norm(delta_world)
-
-        if distance > self.max_detection_range or distance < 0.1:
+        # 1. Check Range Limit
+        max_range = self.airframe.thermal_range_m if self.airframe.has_thermal else self.airframe.camera_range_m
+        if true_dist > max_range or true_dist < 0.2:
             return None
 
-        # Transform to body frame (camera is forward-facing along body +X)
-        # Camera frame: X=right, Y=down, Z=forward
-        delta_body = R.T @ delta_world
-
-        # Camera frame convention: Z forward, X right, Y down
-        # Body +X = camera +Z (forward), Body +Y = camera -X (left→right negated), Body -Z = camera +Y (down)
-        x_c = delta_body[1]   # right
-        y_c = -delta_body[2]  # down (body Z is up, camera Y is down)
-        z_c = delta_body[0]   # forward
-
-        # Behind camera check
-        if z_c <= 0.1:
+        # 2. Check Camera Field of View (horizontal frustum)
+        R_b2w = quat_to_rotation_matrix(drone_quat)
+        cam_forward = R_b2w[:, 0]  # Drone body x-axis
+        unit_diff = diff / true_dist
+        cos_angle = float(np.dot(cam_forward, unit_diff))
+        fov_limit = math.cos(math.radians(self.airframe.camera_fov_deg / 2.0))
+        if cos_angle < fov_limit:
             return None
 
-        # Project to image plane
-        u = int(self.fx * (x_c / z_c) + self.cx)
-        v = int(self.fy * (y_c / z_c) + self.cy)
-
-        # FOV check (with margin for target size)
-        half_w = int(self.fx * (target_radius / z_c))
-        half_h = int(self.fy * (target_radius / z_c))
-
-        # Check if any part of bounding box is in frame
-        bbox_left = u - half_w
-        bbox_right = u + half_w
-        bbox_top = v - half_h
-        bbox_bottom = v + half_h
-
-        if (bbox_right < 0 or bbox_left >= self.image_width or
-            bbox_bottom < 0 or bbox_top >= self.image_height):
+        # 3. Check Building Occlusion Raycast
+        if is_occluded_fn(drone_pos, true_target_pos):
             return None
 
-        # Bearing angle from camera forward axis
-        bearing = np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c)
+        # 4. Check Smoke Screen Attenuation
+        if target_smoke_active and not self.airframe.has_thermal:
+            # Optical camera is completely blinded by aerosol smoke screen
+            return None
 
-        # Confidence based on distance and angle
-        range_factor = 1.0 - (distance / self.max_detection_range)
-        angle_factor = 1.0 - (bearing / (self.hfov / 2.0))
-        confidence = np.clip(range_factor * angle_factor, 0.0, 1.0)
+        # 5. Check Stochastic Sensor Dropout
+        if self.rng.uniform(0.0, 1.0) < self.dropout_prob:
+            return None
 
-        return TargetObservation(
-            target_id=-1,  # filled by caller
-            pixel_x=u,
-            pixel_y=v,
-            pixel_width=2 * half_w,
-            pixel_height=2 * half_h,
-            distance=distance,
-            bearing=bearing,
-            confidence=confidence,
-            in_fov=True,
+        # 6. Inject Realistic Measurement Noise
+        # Range noise grows with distance: sigma_r = max(0.1, dist * pct)
+        sigma_r = max(0.12, true_dist * self.range_noise_pct)
+        sigma_theta = self.bearing_noise_rad
+
+        measured_dist = true_dist + self.rng.normal(0.0, sigma_r)
+        measured_dist = max(0.2, measured_dist)
+
+        # Planar bearing angle from camera forward
+        true_bearing = math.atan2(diff[1], diff[0])
+        measured_bearing = true_bearing + self.rng.normal(0.0, sigma_theta)
+
+        # Reconstructed noisy 2D position
+        measured_x = drone_pos[0] + measured_dist * math.cos(measured_bearing)
+        measured_y = drone_pos[1] + measured_dist * math.sin(measured_bearing)
+        noisy_pos_2d = np.array([measured_x, measured_y], dtype=np.float64)
+
+        # Covariance matrix R in 2D Cartesian plane
+        # R_cartesian = J * diag(sigma_r^2, sigma_theta^2) * J^T
+        sin_b, cos_b = math.sin(measured_bearing), math.cos(measured_bearing)
+        var_r = sigma_r ** 2
+        var_theta = (true_dist * sigma_theta) ** 2  # transverse positional variance
+        r_xx = (cos_b**2) * var_r + (sin_b**2) * var_theta
+        r_yy = (sin_b**2) * var_r + (cos_b**2) * var_theta
+        r_xy = sin_b * cos_b * (var_r - var_theta)
+        cov_r = np.array([[r_xx, r_xy], [r_xy, r_yy]], dtype=np.float64)
+
+        # Confidence metric derived from distance and angle
+        range_factor = max(0.0, 1.0 - (true_dist / max_range))
+        angle_factor = max(0.0, (cos_angle - fov_limit) / (1.0 - fov_limit + 1e-6))
+        conf = float(np.clip(0.6 * range_factor + 0.4 * angle_factor, 0.20, 0.98))
+
+        return NoisyTargetMeasurement(
+            target_id=target_id,
+            measured_pos_2d=noisy_pos_2d,
+            range_m=measured_dist,
+            bearing_rad=measured_bearing,
+            confidence=conf,
+            timestamp=sim_time,
+            drone_id=self.drone_id,
+            is_thermal=self.airframe.has_thermal,
+            covariance_r=cov_r,
         )
 
 
 class BatteryModel:
     """
-    Battery discharge model with capacity tracking.
-
-    Power model:
-        P_total = P_hover * (T/mg)^{3/2} + P_avionics + P_payload
-
-    Energy integration:
-        E(k+1) = E(k) - P_total * dt
+    Electrochemical battery discharge model strictly parameterized by AirframeConfig.
+    Calculates power draw from avionics, sensor payload, and aerodynamic thrust demand.
     """
 
-    def __init__(
-        self,
-        initial_capacity_wh: float = BATTERY_CAPACITY_WH,
-        critical_pct: float = 10.0,
-    ):
-        self.initial_capacity_wh = initial_capacity_wh
-        self.remaining_wh = initial_capacity_wh
-        self.critical_pct = critical_pct
-        self.total_consumed_wh = 0.0
+    def __init__(self, airframe: AirframeConfig):
+        self.airframe = airframe
+        self.capacity_wh = airframe.battery_capacity_wh
+        self.initial_capacity_wh = airframe.battery_capacity_wh
+        self.remaining_wh = airframe.battery_capacity_wh
+        self.voltage = airframe.battery_nominal_voltage_v
+        self.total_energy_consumed_wh = 0.0
 
-    def reset(self) -> None:
-        self.remaining_wh = self.initial_capacity_wh
-        self.total_consumed_wh = 0.0
-
-    def update(self, thrust_ratio: float, dt: float) -> BatteryState:
+    def step(self, total_thrust_n: float, dt: float) -> float:
         """
-        Update battery state based on power consumption.
-
-        Parameters
-        ----------
-        thrust_ratio : T / (m*g), normalized thrust
-        dt : timestep in seconds
-
-        Returns
-        -------
-        BatteryState
+        Discharge battery based on thrust output over dt seconds.
+        Returns remaining state-of-charge percentage [0, 100].
         """
-        power = compute_power_consumption(thrust_ratio)
-        energy_wh = power * dt / 3600.0  # convert W·s to Wh
+        # Aerodynamic power proportional to thrust^(3/2) (momentum theory)
+        thrust_ratio = total_thrust_n / max(0.1, self.airframe.weight_n)
+        p_aero = self.airframe.p_hover_base_w * (thrust_ratio ** 1.5)
+        p_total = self.airframe.p_avionics_w + self.airframe.p_payload_w + p_aero
 
-        self.remaining_wh = max(0.0, self.remaining_wh - energy_wh)
-        self.total_consumed_wh += energy_wh
+        energy_consumed = (p_total * dt) / 3600.0  # Wh
+        self.remaining_wh = max(0.0, self.remaining_wh - energy_consumed)
+        self.total_energy_consumed_wh += energy_consumed
 
-        pct = (self.remaining_wh / self.initial_capacity_wh) * 100.0
-        # Linear voltage approximation: 4.2V (full) → 3.0V (empty)
-        voltage = 3.0 + 1.2 * (pct / 100.0)
+        return self.soc_pct
 
-        return BatteryState(
-            capacity_wh=self.remaining_wh,
-            percentage=pct,
-            voltage=voltage,
-            is_critical=pct < self.critical_pct,
-            total_energy_consumed_wh=self.total_consumed_wh,
-        )
+    @property
+    def soc_pct(self) -> float:
+        """State of charge percentage."""
+        if self.initial_capacity_wh <= 0:
+            return 100.0
+        return float(np.clip((self.remaining_wh / self.initial_capacity_wh) * 100.0, 0.0, 100.0))
+
+    @property
+    def is_critical(self) -> bool:
+        """Critical low-battery threshold (15%)."""
+        return self.soc_pct <= 15.0
+
+
+@dataclass
+class TargetObservation:
+    """Detected target in camera frame (legacy compatibility)."""
+    target_id: int
+    pixel_x: int = 0
+    pixel_y: int = 0
+    pixel_width: int = 0
+    pixel_height: int = 0
+    distance: float = 0.0
+    bearing: float = 0.0
+    confidence: float = 0.0
+    in_fov: bool = False
+
+
+@dataclass
+class BatteryState:
+    """Battery telemetry (legacy compatibility)."""
+    capacity_wh: float
+    percentage: float
+    voltage: float
+    is_critical: bool
+    total_energy_consumed_wh: float = 0.0
 
 
 class SensorSuite:
-    """
-    Complete sensor package for a single reconnaissance drone.
-    Aggregates IMU, proximity array, camera, and battery.
-    """
+    """Multi-sensor integration suite (legacy compatibility)."""
 
-    def __init__(self, drone_id: int, seed: int | None = None):
+    def __init__(self, drone_id: int = 0, seed: Optional[int] = None):
         self.drone_id = drone_id
-        base_seed = seed if seed is not None else (42 + drone_id * 100)
+        self.target_sensor = SyntheticTargetSensor(drone_id=drone_id, seed=seed)
+        self.battery = BatteryModel(get_airframe_config(drone_id))
+        self.visible_targets: Dict[int, float] = {}
 
-        self.imu = IMUSensor(seed=base_seed)
-        self.proximity = ProximityArraySensor(seed=base_seed + 10)
-        self.camera = ReconCamera()
-        self.battery = BatteryModel()
-
-    def reset(self) -> None:
-        self.imu.reset()
-        self.battery.reset()

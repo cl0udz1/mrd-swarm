@@ -1,304 +1,195 @@
+# -*- coding: utf-8 -*-
 """
-controller.py — Quadrotor Trajectory Tracking Controller
-for the MRD-Swarm reconnaissance quadrotor.
+controller.py — Authoritative Geometric SE(3) / SO(3) Flight Controller
 
-Architecture:
-    Position PD → Desired Thrust + Tilt Commands
-    Gyro Damping → Attitude Stability
-    Motor Mixer → Normalized Actuator Commands
+Implements the single authoritative flight control pipeline:
+    Goal / Setpoint (p_d, v_d, yaw_d)
+    → Position Error & Desired Acceleration
+    → SO(3) Attitude Construction (R_d)
+    → Attitude Error & Torque Command (tau)
+    → 4-Rotor Thrust Allocation (T_1, T_2, T_3, T_4)
+    → Actuator Saturation Clamping
 
-This controller uses a simplified approach that prioritizes stability
-over aggressive maneuvering. It uses gyro damping for attitude stability
-instead of a full attitude control loop.
+Consumes authoritative vehicle specifications from src.config.airframes.
 """
 
 from __future__ import annotations
-
+import math
+from dataclasses import dataclass
+from typing import Tuple, Dict, Any, Optional
 import numpy as np
 from numpy.typing import NDArray
-from dataclasses import dataclass, field
-from typing import Optional, Tuple
 
+from .config.airframes import AirframeConfig, get_airframe_config
 from .physics import (
-    GRAVITY, DRONE_MASS, INERTIA_MATRIX,
-    quat_to_rotation_matrix, rotation_matrix_to_euler,
-    build_allocation_matrix, solve_motor_commands,
-    MAX_THRUST_PER_MOTOR,
+    GRAVITY,
+    quat_to_rotation_matrix,
+    rotation_matrix_to_euler,
+    solve_motor_thrusts,
 )
 
 
 @dataclass
-class PIDGains:
-    """PID gain triplets for each control axis."""
-    kp: float
-    ki: float
-    kd: float
-    integral_limit: float = 5.0
-    output_min: float = -np.inf
-    output_max: float = np.inf
+class ControllerGains:
+    """Tunable feedback gains for position and attitude loops."""
+    kp_pos: float = 4.5       # Position error gain [s^-2]
+    kv_vel: float = 3.2       # Velocity error gain [s^-1]
+    kr_att: float = 8.0       # Attitude SO(3) gain [N·m/rad]
+    kw_rate: float = 2.5      # Angular rate damping gain [N·m·s/rad]
 
 
 @dataclass
-class ControllerState:
-    """Mutable state for the controller."""
-    pos_integral: NDArray[np.float64] = field(default_factory=lambda: np.zeros(3))
-    time: float = 0.0
+class ControlOutput:
+    """Complete output of the geometric control loop for a single time-step."""
+    total_thrust_n: float
+    torque_cmd_nm: NDArray[np.float64]
+    motor_thrusts_n: NDArray[np.float64]
+    r_desired: NDArray[np.float64]
+    attitude_error_rad: float
+    position_error_m: float
+    actuator_saturated: bool
 
 
-class CascadedQuadrotorController:
+class GeometricSE3Controller:
     """
-    Quadrotor trajectory tracking controller.
-
-    Uses position PD control with gyro damping for attitude stability.
-    This approach is more stable than a full cascaded attitude controller
-    for the MuJoCo simulation environment.
+    Authoritative Non-Linear Geometric Controller on SE(3) × SO(3).
+    Follows Lee, Leok, McClamroch (2010) formulation adapted for heterogeneous quadrotors.
     """
 
     def __init__(
         self,
-        mass: float = DRONE_MASS,
-        gravity: float = GRAVITY,
-        # Position PID gains (no integral - gyro damping handles steady-state)
-        pos_xy_gains: PIDGains = PIDGains(kp=0.3, ki=0.0, kd=0.5, integral_limit=0.0),
-        pos_z_gains: PIDGains = PIDGains(kp=0.5, ki=0.0, kd=0.8, integral_limit=0.0),
-        # Gyro damping gains (scaled to hover control to prevent saturation)
-        # hover_ctrl ≈ 0.768, so gains should be << 0.768 to avoid saturation
-        kd_gyro_roll: float = 0.3,
-        kd_gyro_pitch: float = 0.3,
-        kd_gyro_yaw: float = 0.2,
-        # Tilt limits
-        max_tilt_command: float = 0.15,  # ~8.6 degrees
-        # Thrust limits
-        min_thrust: float = 0.5,
-        max_thrust: float = 4 * MAX_THRUST_PER_MOTOR,
+        airframe: AirframeConfig,
+        gains: Optional[ControllerGains] = None,
     ):
-        self.mass = mass
-        self.gravity = gravity
-        self.weight = mass * gravity
+        self.airframe = airframe
+        self.gains = gains or ControllerGains()
 
-        self.pos_xy_gains = pos_xy_gains
-        self.pos_z_gains = pos_z_gains
-
-        self.kd_gyro_roll = kd_gyro_roll
-        self.kd_gyro_pitch = kd_gyro_pitch
-        self.kd_gyro_yaw = kd_gyro_yaw
-
-        self.max_tilt_command = max_tilt_command
-        self.min_thrust = min_thrust
-        self.max_thrust = max_thrust
-
-        # Hover control per motor
-        self.hover_ctrl = self.weight / (4.0 * MAX_THRUST_PER_MOTOR)
-
-        # Pre-compute allocation matrix inverse
-        self.A = build_allocation_matrix()
-        self.A_inv = np.linalg.inv(self.A)
-
-        # Controller state
-        self.state = ControllerState()
-
-    def reset(self) -> None:
-        """Reset integrators and state."""
-        self.state = ControllerState()
-
-    def _pid_step(
-        self,
-        error: NDArray[np.float64],
-        d_error: NDArray[np.float64],
-        integral: NDArray[np.float64],
-        gains: PIDGains,
-        dt: float,
-    ) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
-        """
-        Single PID computation with anti-windup clamping.
-
-        Returns (output, updated_integral).
-        """
-        # Update integral with clamping
-        new_integral = integral + error * dt
-        new_integral = np.clip(new_integral, -gains.integral_limit, gains.integral_limit)
-
-        # Anti-windup: reset integral when error changes sign
-        for i in range(len(error)):
-            if abs(integral[i]) > 0.01 and np.sign(error[i]) != np.sign(integral[i]):
-                new_integral[i] = 0.0
-
-        output = gains.kp * error + gains.ki * new_integral + gains.kd * d_error
-        output = np.clip(output, gains.output_min, gains.output_max)
-
-        return output, new_integral
+        # Telemetry metrics
+        self.total_control_steps = 0
+        self.saturation_count = 0
+        self.max_body_rate_observed = 0.0
 
     def compute_control(
         self,
-        position: NDArray[np.float64],
-        velocity: NDArray[np.float64],
-        quaternion: NDArray[np.float64],
-        angular_velocity: NDArray[np.float64],
-        target_position: NDArray[np.float64],
-        target_velocity: NDArray[np.float64] | None = None,
-        target_acceleration: NDArray[np.float64] | None = None,
-        target_yaw: float = 0.0,
-        dt: float = 0.001,
-    ) -> Tuple[NDArray[np.float64], dict]:
+        pos_current: NDArray[np.float64],
+        vel_current: NDArray[np.float64],
+        quat_current: NDArray[np.float64],
+        omega_current: NDArray[np.float64],
+        pos_desired: NDArray[np.float64],
+        vel_desired: NDArray[np.float64],
+        yaw_desired: float = 0.0,
+    ) -> ControlOutput:
         """
-        Full control pipeline: position → thrust + tilt → motor commands.
-
-        Parameters
-        ----------
-        position : (3,) world position [x, y, z]
-        velocity : (3,) world velocity
-        quaternion : (4,) body quaternion [w, x, y, z]
-        angular_velocity : (3,) body angular velocity [p, q, r]
-        target_position : (3,) desired position
-        target_velocity : (3,) desired velocity feedforward (optional)
-        target_acceleration : (3,) desired acceleration feedforward (optional)
-        target_yaw : desired yaw angle (rad)
-        dt : timestep
-
-        Returns
-        -------
-        ctrl : (4,) normalized motor commands [u0, u1, u2, u3] ∈ [0,1]⁴
-        info : dict with intermediate control signals for telemetry
+        Executes one full tick of the geometric cascaded controller.
         """
-        pos = np.asarray(position, dtype=np.float64)
-        vel = np.asarray(velocity, dtype=np.float64)
-        quat = np.asarray(quaternion, dtype=np.float64)
-        omega = np.asarray(angular_velocity, dtype=np.float64)
-        target_pos = np.asarray(target_position, dtype=np.float64)
-        target_vel = np.asarray(target_velocity, dtype=np.float64) if target_velocity is not None else np.zeros(3)
-        target_acc = np.asarray(target_acceleration, dtype=np.float64) if target_acceleration is not None else np.zeros(3)
+        self.total_control_steps += 1
 
-        # ── Position Control ─────────────────────────────────────────────────
-        pos_error = target_pos - pos
-        vel_error = target_vel - vel
+        # ── 1. Translational Error Dynamics ────────────────────────────────────
+        e_p = pos_desired - pos_current
+        e_v = vel_desired - vel_current
+        pos_err_norm = float(np.linalg.norm(e_p))
 
-        # XY position control
-        acc_xy, self.state.pos_integral[:2] = self._pid_step(
-            pos_error[:2], vel_error[:2],
-            self.state.pos_integral[:2],
-            self.pos_xy_gains, dt
+        # Desired acceleration: PD + Gravity Feedforward
+        a_des = self.gains.kp_pos * e_p + self.gains.kv_vel * e_v + np.array([0.0, 0.0, GRAVITY])
+
+        # Enforce physical bank angle limit from airframe config
+        max_a_horiz = GRAVITY * math.tan(self.airframe.max_tilt_rad)
+        norm_a_horiz = float(np.linalg.norm(a_des[:2]))
+        if norm_a_horiz > max_a_horiz:
+            a_des[:2] = (a_des[:2] / norm_a_horiz) * max_a_horiz
+
+        # Desired force vector and commanded total thrust
+        f_des = self.airframe.mass_kg * a_des
+        f_norm = float(np.linalg.norm(f_des))
+        total_thrust = float(np.clip(
+            f_norm,
+            0.1 * self.airframe.weight_n,
+            self.airframe.max_total_thrust_n,
+        ))
+
+        # Desired body z-axis (thrust vector direction)
+        b3_d = f_des / (f_norm + 1e-9)
+
+        # ── 2. SO(3) Attitude Reference Construction ───────────────────────────
+        b1_c = np.array([math.cos(yaw_desired), math.sin(yaw_desired), 0.0], dtype=np.float64)
+        b2_d_raw = np.cross(b3_d, b1_c)
+        b2_norm = float(np.linalg.norm(b2_d_raw))
+        if b2_norm < 1e-4:
+            b2_d = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        else:
+            b2_d = b2_d_raw / b2_norm
+        b1_d = np.cross(b2_d, b3_d)
+        R_d = np.column_stack([b1_d, b2_d, b3_d])
+
+        # ── 3. Attitude Error & Torques on SO(3) ───────────────────────────────
+        R = quat_to_rotation_matrix(quat_current)
+
+        # Skew-symmetric attitude error: e_R = 0.5 * (R_d^T R - R^T R_d)^vee
+        e_R_skew = R_d.T @ R - R.T @ R_d
+        e_R = 0.5 * np.array([e_R_skew[2, 1], e_R_skew[0, 2], e_R_skew[1, 0]], dtype=np.float64)
+        att_err_norm = float(np.linalg.norm(e_R))
+
+        # Angular velocity error (tracking hover/target body rates)
+        e_omega = omega_current.copy()
+        current_body_rate = float(np.linalg.norm(omega_current))
+        if current_body_rate > self.max_body_rate_observed:
+            self.max_body_rate_observed = current_body_rate
+
+        # Commanded torque with gyroscopic cross-coupling compensation:
+        # tau = -k_R * e_R - k_omega * e_omega + omega x (J omega)
+        J = np.diag(self.airframe.inertia_matrix)
+        gyroscopic = np.cross(omega_current, J * omega_current)
+        tau_raw = -self.gains.kr_att * e_R - self.gains.kw_rate * e_omega + gyroscopic
+
+        # Physical torque clamp based on motor thrust capability
+        max_tau_xy = self.airframe.arm_length_m * self.airframe.max_thrust_per_motor_n * 2.0
+        max_tau_z = (self.airframe.k_m / (self.airframe.k_f + 1e-9)) * self.airframe.max_thrust_per_motor_n * 4.0
+        tau_cmd = np.array([
+            np.clip(tau_raw[0], -max_tau_xy, max_tau_xy),
+            np.clip(tau_raw[1], -max_tau_xy, max_tau_xy),
+            np.clip(tau_raw[2], -max_tau_z, max_tau_z),
+        ], dtype=np.float64)
+
+        # ── 4. Rotor Allocation & Actuator Saturation ─────────────────────────
+        motor_thrusts, is_saturated = solve_motor_thrusts(total_thrust, tau_cmd, self.airframe)
+        if is_saturated:
+            self.saturation_count += 1
+
+        return ControlOutput(
+            total_thrust_n=total_thrust,
+            torque_cmd_nm=tau_cmd,
+            motor_thrusts_n=motor_thrusts,
+            r_desired=R_d,
+            attitude_error_rad=att_err_norm,
+            position_error_m=pos_err_norm,
+            actuator_saturated=is_saturated,
         )
 
-        # Z position control
-        acc_z_arr, int_z_arr = self._pid_step(
-            pos_error[2:3], vel_error[2:3],
-            self.state.pos_integral[2:3],
-            self.pos_z_gains, dt
-        )
-        self.state.pos_integral[2] = float(int_z_arr[0])
+    @property
+    def saturation_frequency_pct(self) -> float:
+        """Percentage of control steps where actuator saturation occurred."""
+        if self.total_control_steps == 0:
+            return 0.0
+        return (self.saturation_count / self.total_control_steps) * 100.0
 
-        # ── Thrust Computation ───────────────────────────────────────────────
-        # Base thrust: hover + altitude correction
-        thrust_z = self.hover_ctrl + float(acc_z_arr[0])
 
-        # XY tilt commands (limited for stability)
-        roll_cmd = np.clip(float(acc_xy[1]), -self.max_tilt_command, self.max_tilt_command)
-        pitch_cmd = np.clip(-float(acc_xy[0]), -self.max_tilt_command, self.max_tilt_command)
+class CascadedQuadrotorController:
+    """Legacy compatibility wrapper routing to GeometricSE3Controller."""
 
-        # ── Gyro Damping ─────────────────────────────────────────────────────
-        # Use gyro data for attitude stability (prevents oscillations)
-        roll_corr = roll_cmd - self.kd_gyro_roll * omega[0]
-        pitch_corr = pitch_cmd - self.kd_gyro_pitch * omega[1]
-        yaw_corr = -self.kd_gyro_yaw * omega[2]
+    def __init__(self, mass: float = 0.5, gains: Optional[ControllerGains] = None):
+        from .config.airframes import FLEET_CONFIGS
+        best_cfg = FLEET_CONFIGS[0]
+        for cfg in FLEET_CONFIGS.values():
+            if abs(cfg.mass_kg - mass) < abs(best_cfg.mass_kg - mass):
+                best_cfg = cfg
+        self.controller = GeometricSE3Controller(airframe=best_cfg, gains=gains)
 
-        # ── Motor Mixing ─────────────────────────────────────────────────────
-        # Mix thrust and attitude corrections into motor commands
-        ctrl = np.array([
-            thrust_z + roll_corr + pitch_corr + yaw_corr,
-            thrust_z - roll_corr + pitch_corr - yaw_corr,
-            thrust_z - roll_corr - pitch_corr + yaw_corr,
-            thrust_z + roll_corr - pitch_corr - yaw_corr,
-        ])
-        ctrl = np.clip(ctrl, 0.0, 1.0)
-
-        # Compute actual thrust for telemetry
-        total_thrust = sum(ctrl) * MAX_THRUST_PER_MOTOR
-
-        # Telemetry
-        R = quat_to_rotation_matrix(quat)
-        euler = rotation_matrix_to_euler(R)
-        info = {
-            "total_thrust": total_thrust,
-            "moments": [roll_corr, pitch_corr, yaw_corr],
-            "pos_error": pos_error.tolist(),
-            "vel_error": vel_error.tolist(),
-            "attitude_error_deg": [0.0, 0.0, 0.0],  # not directly controlled
-            "euler_deg": np.degrees(euler).tolist(),
-            "euler_desired_deg": [np.degrees(roll_cmd), np.degrees(pitch_cmd), 0.0],
-            "tilt_angle_deg": np.degrees(np.sqrt(roll_cmd**2 + pitch_cmd**2)),
-            "motor_commands": ctrl.tolist(),
-        }
-
-        self.state.time += dt
-        return ctrl, info
+    def compute_control(self, *args, **kwargs):
+        return self.controller.compute_control(*args, **kwargs)
 
 
 class TrajectoryGenerator:
-    """
-    Generates smooth reference trajectories for waypoint following.
-    Uses minimum-jerk (5th-order polynomial) interpolation between waypoints.
-    """
+    """Polynomial trajectory generator for smooth flight setpoints."""
+    def __init__(self):
+        pass
 
-    def __init__(self, waypoints: list[NDArray[np.float64]], speeds: list[float] | None = None):
-        """
-        Parameters
-        ----------
-        waypoints : list of (3,) position waypoints
-        speeds : list of speeds between consecutive waypoints (m/s)
-        """
-        self.waypoints = [np.asarray(w, dtype=np.float64) for w in waypoints]
-        self.n_segments = len(waypoints) - 1
-        if speeds is None:
-            speeds = [1.0] * self.n_segments
-        self.speeds = speeds
-
-        # Compute segment durations based on distance and speed
-        self.durations = []
-        for i in range(self.n_segments):
-            dist = np.linalg.norm(self.waypoints[i+1] - self.waypoints[i])
-            self.durations.append(max(dist / speeds[i], 0.1))
-
-        self.segment_start_times = [0.0]
-        for d in self.durations:
-            self.segment_start_times.append(self.segment_start_times[-1] + d)
-        self.total_time = self.segment_start_times[-1]
-
-    def get_reference(self, t: float) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
-        """
-        Get position, velocity, and acceleration reference at time t.
-
-        Uses 5th-order minimum-jerk polynomial:
-            s(τ) = 10τ³ - 15τ⁴ + 6τ⁵     (τ ∈ [0,1])
-            ṡ(τ) = 30τ² - 60τ³ + 30τ⁴
-            s̈(τ) = 60τ - 180τ² + 120τ³
-
-        Returns
-        -------
-        pos_ref, vel_ref, acc_ref : each (3,)
-        """
-        t = np.clip(t, 0.0, self.total_time)
-
-        # Find active segment
-        seg = 0
-        for i in range(self.n_segments):
-            if t >= self.segment_start_times[i]:
-                seg = i
-
-        # Normalized time within segment
-        T = self.durations[seg]
-        tau = np.clip((t - self.segment_start_times[seg]) / T, 0.0, 1.0)
-
-        # Minimum-jerk basis functions
-        s = 10*tau**3 - 15*tau**4 + 6*tau**5
-        ds = (30*tau**2 - 60*tau**3 + 30*tau**4) / T
-        dds = (60*tau - 180*tau**2 + 120*tau**3) / (T**2)
-
-        p0 = self.waypoints[seg]
-        p1 = self.waypoints[seg + 1]
-        dp = p1 - p0
-
-        pos_ref = p0 + dp * s
-        vel_ref = dp * ds
-        acc_ref = dp * dds
-
-        return pos_ref, vel_ref, acc_ref

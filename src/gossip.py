@@ -1,23 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-gossip.py — Decentralized Peer-to-Peer Gossip Protocol & Belief State Fusion
+gossip.py — Decentralized Ad-Hoc Multi-Hop Gossip Protocol & Target Belief Fusion
 
 Provides:
-- Ad-hoc RF mesh networking model with spatial range constraints (R_comm <= 15m)
-- Stochastic packet loss, propagation latency, and building occlusion attenuation
-- Asynchronous gossip message exchange (Heartbeat, Target Intel, Task Auction, Coverage)
-- Distributed Multi-Target Belief State Fusion (Bayesian confidence & position estimation)
-- Decentralized Consensus-Based Bundle Algorithm (CBBA) for target tracking bidding
+- Peer-to-Peer RF mesh networking with spatial range thresholds (Drone 3 Relay = 32m, others = 18m)
+- True Multi-Hop Forwarding: TTL decrement, sequence-number deduplication, loop prevention
+- Stochastic packet loss, propagation latency, and dynamic topology changes
+- ConfidenceWeightedTargetFusion: Heuristic confidence-weighted observation blending
+- DistributedUtilityAuction: Single-task decentralized highest-utility auction
 """
 
 from __future__ import annotations
 import math
-import time
 import copy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Tuple, Optional, Any, Set
 import numpy as np
+from numpy.typing import NDArray
+
+from .config.airframes import FLEET_CONFIGS
 
 
 class MessageType(Enum):
@@ -30,11 +32,11 @@ class MessageType(Enum):
 
 @dataclass
 class TargetEstimate:
-    """Belief state for a detected ground target."""
+    """Belief state for a detected ground target held in a drone's local world model."""
     target_id: int
-    position: np.ndarray  # Estimated [x, y, z]
-    velocity: np.ndarray  # Estimated [vx, vy, vz]
-    confidence: float     # [0, 1]
+    position: NDArray[np.float64]  # Estimated [x, y, z]
+    velocity: NDArray[np.float64]  # Estimated [vx, vy, vz]
+    confidence: float              # Observation confidence [0, 1]
     last_observed_time: float
     reporting_agent_id: int
     observation_count: int = 1
@@ -42,51 +44,52 @@ class TargetEstimate:
 
 @dataclass
 class GossipMessage:
-    """A single packet transmitted across the gossip mesh."""
+    """A packet transmitted across the ad-hoc mesh network."""
     msg_id: str
     msg_type: MessageType
-    sender_id: int
+    origin_id: int                # Original generating node ID
+    forwarder_id: int             # Immediate 1-hop sender ID
     timestamp: float
     payload: Dict[str, Any]
-    ttl: int = 4  # Max hops for multi-hop propagation
+    ttl: int = 4                  # Remaining hops (decremented on each forwarding step)
+    hop_count: int = 0            # Number of hops traversed
 
 
 class GossipChannel:
     """
-    Simulates the physical RF communication medium between swarm agents.
-    
-    Models:
-    - Distance attenuation: R_comm threshold (default 15.0 m)
-    - Packet loss: stochastic drop with probability p_loss
-    - Dynamic network adjacency matrix
-    - Total communication throughput tracking
+    Simulates the physical wireless medium between swarm agents.
+    Handles distance thresholds, stochastic packet drops, multi-hop forwarding, and throughput.
     """
 
     def __init__(
         self,
-        comm_range: float = 15.0,
+        default_comm_range: float = 18.0,
         packet_loss_rate: float = 0.05,
         bandwidth_limit_kbps: float = 250.0,
     ):
-        self.comm_range = comm_range
+        self.default_comm_range = default_comm_range
         self.packet_loss_rate = packet_loss_rate
         self.bandwidth_limit_kbps = bandwidth_limit_kbps
 
-        self.nodes: Dict[int, Any] = {}
+        self.nodes: Dict[int, GossipNode] = {}
         self.active_links: Set[Tuple[int, int]] = set()
-        
+
         # Telemetry metrics
-        self.total_messages_sent = 0
+        self.total_messages_generated = 0
+        self.total_messages_forwarded = 0
         self.total_messages_delivered = 0
         self.total_messages_dropped = 0
         self.total_bytes_transferred = 0
-        self.link_history: List[Dict[str, Any]] = []
 
-    def register_node(self, node: Any) -> None:
+    def register_node(self, node: GossipNode) -> None:
         self.nodes[node.agent_id] = node
 
-    def update_network_topology(self, agent_positions: Dict[int, np.ndarray], current_time: float) -> Set[Tuple[int, int]]:
-        """Updates the active RF mesh links based on current agent positions."""
+    def update_network_topology(
+        self,
+        agent_positions: Dict[int, NDArray[np.float64]],
+        current_time: float,
+    ) -> Set[Tuple[int, int]]:
+        """Updates active RF links based on asymmetric airframe transmission ranges."""
         self.active_links.clear()
         agent_ids = list(agent_positions.keys())
         n = len(agent_ids)
@@ -98,34 +101,50 @@ class GossipChannel:
                 pos_b = agent_positions[id_b]
                 dist = float(np.linalg.norm(pos_a - pos_b))
 
-                if dist <= self.comm_range:
-                    self.active_links.add((id_a, id_b))
-                    self.active_links.add((id_b, id_a))
+                # Asymmetric range: relay (D3) transmits up to 32m; others 18m
+                range_a = FLEET_CONFIGS[id_a].rf_comm_range_m if id_a in FLEET_CONFIGS else self.default_comm_range
+                range_b = FLEET_CONFIGS[id_b].rf_comm_range_m if id_b in FLEET_CONFIGS else self.default_comm_range
+                eff_range = max(range_a, range_b)
+
+                if dist <= eff_range:
+                    self.active_links.add((min(id_a, id_b), max(id_a, id_b)))
 
         return self.active_links
 
-    def broadcast(self, message: GossipMessage, sender_pos: np.ndarray, all_positions: Dict[int, np.ndarray], rng: np.random.Generator) -> int:
-        """Broadcasts a message from sender to all neighbor nodes within communication range."""
-        self.total_messages_sent += 1
+    def broadcast_packet(
+        self,
+        message: GossipMessage,
+        sender_pos: NDArray[np.float64],
+        agent_positions: Dict[int, NDArray[np.float64]],
+        rng: Optional[np.random.RandomState] = None,
+    ) -> int:
+        """
+        Broadcast a packet to all 1-hop physical neighbors within communication range.
+        """
+        if rng is None:
+            rng = np.random.RandomState(42)
+
         delivered_count = 0
-        sender_id = message.sender_id
+        sender_id = message.forwarder_id
+        sender_range = FLEET_CONFIGS[sender_id].rf_comm_range_m if sender_id in FLEET_CONFIGS else self.default_comm_range
 
         for target_id, target_node in self.nodes.items():
-            if target_id == sender_id:
+            if target_id == sender_id or target_id == message.origin_id:
                 continue
 
-            target_pos = all_positions.get(target_id)
-            if target_pos is None:
+            if target_id not in agent_positions:
                 continue
 
-            dist = float(np.linalg.norm(sender_pos - target_pos))
-            if dist <= self.comm_range:
-                # Check packet loss
+            dist = float(np.linalg.norm(sender_pos - agent_positions[target_id]))
+            target_range = FLEET_CONFIGS[target_id].rf_comm_range_m if target_id in FLEET_CONFIGS else self.default_comm_range
+            max_r = max(sender_range, target_range)
+
+            if dist <= max_r:
                 if rng.uniform(0.0, 1.0) > self.packet_loss_rate:
                     target_node.receive_message(copy.deepcopy(message))
                     delivered_count += 1
                     self.total_messages_delivered += 1
-                    self.total_bytes_transferred += 128  # nominal payload size
+                    self.total_bytes_transferred += 128
                 else:
                     self.total_messages_dropped += 1
 
@@ -134,13 +153,9 @@ class GossipChannel:
 
 class GossipNode:
     """
-    Decentralized communication engine residing on each physical drone.
-    
-    Responsibilities:
-    - Maintains local message cache with deduplication (seen message IDs)
-    - Fuses target sightings into a unified Bayesian Target Belief Map
-    - Implements distributed auction / consensus task allocation
-    - Manages spatial coverage map representation
+    Decentralized communication node residing on each UAV.
+    Handles message deduplication, multi-hop forwarding with TTL decrement,
+    confidence-weighted target belief fusion, and distributed utility auction.
     """
 
     def __init__(self, agent_id: int, broadcast_interval: float = 0.10):
@@ -151,44 +166,60 @@ class GossipNode:
         # Communication buffers
         self.inbox: List[GossipMessage] = []
         self.outbox: List[GossipMessage] = []
+        self.forward_queue: List[GossipMessage] = []
         self.seen_message_ids: Set[str] = set()
 
-        # Swarm State Awareness (Decentralized World Model)
+        # Local decentralized world model
         self.peer_states: Dict[int, Dict[str, Any]] = {}
         self.target_beliefs: Dict[int, TargetEstimate] = {}
-        self.task_assignments: Dict[str, Dict[str, Any]] = {}  # task_id -> {winner_id, bid_val, timestamp}
-        self.coverage_grid: np.ndarray = np.zeros((20, 20), dtype=np.float32)  # 40m x 40m area at 2m res
+        self.task_assignments: Dict[str, Dict[str, Any]] = {}
+        self.coverage_grid: np.ndarray = np.zeros((20, 20), dtype=np.float32)
 
-        # Local message counter for unique IDs
         self.msg_seq = 0
 
-    def create_message(self, msg_type: MessageType, payload: Dict[str, Any], sim_time: float) -> GossipMessage:
+    def create_message(self, msg_type: MessageType, payload: Dict[str, Any], sim_time: float, ttl: int = 4) -> GossipMessage:
+        """Create a fresh packet originating at this node."""
         self.msg_seq += 1
-        msg_id = f"node_{self.agent_id}_seq_{self.msg_seq}_{int(sim_time*1000)}"
+        msg_id = f"node_{self.agent_id}_seq_{self.msg_seq}_{int(sim_time * 1000)}"
         msg = GossipMessage(
             msg_id=msg_id,
             msg_type=msg_type,
-            sender_id=self.agent_id,
+            origin_id=self.agent_id,
+            forwarder_id=self.agent_id,
             timestamp=sim_time,
             payload=payload,
+            ttl=ttl,
+            hop_count=0,
         )
         self.seen_message_ids.add(msg_id)
         return msg
 
     def receive_message(self, message: GossipMessage) -> bool:
-        """Buffers message if not already processed."""
+        """
+        Ingests packet into local inbox.
+        If TTL > 1, schedules packet for multi-hop re-broadcast with decremented TTL.
+        """
         if message.msg_id in self.seen_message_ids:
-            return False
-        
+            return False  # Deduplication drop
+
         self.seen_message_ids.add(message.msg_id)
         self.inbox.append(message)
+
+        # Multi-hop forwarding: decrement TTL and queue for forwarding if hops remain
+        if message.ttl > 1:
+            forwarded_pkt = copy.deepcopy(message)
+            forwarded_pkt.ttl -= 1
+            forwarded_pkt.hop_count += 1
+            forwarded_pkt.forwarder_id = self.agent_id
+            self.forward_queue.append(forwarded_pkt)
+
         return True
 
     def process_inbox(self, current_time: float) -> None:
-        """Processes all incoming gossip messages and updates local belief state."""
+        """Process incoming messages to update decentralized world model."""
         while self.inbox:
             msg = self.inbox.pop(0)
-            
+
             if msg.msg_type == MessageType.HEARTBEAT:
                 self._handle_heartbeat(msg)
             elif msg.msg_type == MessageType.TARGET_INTEL:
@@ -199,7 +230,7 @@ class GossipNode:
                 self._handle_coverage_map(msg)
 
     def _handle_heartbeat(self, msg: GossipMessage) -> None:
-        sender_id = msg.sender_id
+        sender_id = msg.origin_id
         self.peer_states[sender_id] = {
             "position": np.array(msg.payload.get("position", [0, 0, 0]), dtype=np.float64),
             "velocity": np.array(msg.payload.get("velocity", [0, 0, 0]), dtype=np.float64),
@@ -210,7 +241,10 @@ class GossipNode:
         }
 
     def _handle_target_intel(self, msg: GossipMessage, current_time: float) -> None:
-        """Fuses peer target sightings into local Target Belief Map."""
+        """
+        ConfidenceWeightedTargetFusion:
+        Blends incoming peer target estimates using scalar confidence weighting.
+        """
         t_id = msg.payload["target_id"]
         raw_pos = np.array(msg.payload["position"], dtype=np.float64)
         raw_vel = np.array(msg.payload.get("velocity", [0, 0, 0]), dtype=np.float64)
@@ -224,12 +258,12 @@ class GossipNode:
                 velocity=raw_vel,
                 confidence=conf,
                 last_observed_time=obs_time,
-                reporting_agent_id=msg.sender_id,
+                reporting_agent_id=msg.origin_id,
                 observation_count=1,
             )
         else:
-            # Weighted Bayesian Confidence Fusion
             curr = self.target_beliefs[t_id]
+            # Confidence-weighted spatial blend
             alpha = conf / (curr.confidence + conf + 1e-6)
             fused_pos = (1.0 - alpha) * curr.position + alpha * raw_pos
             fused_vel = (1.0 - alpha) * curr.velocity + alpha * raw_vel
@@ -242,10 +276,13 @@ class GossipNode:
             curr.observation_count += 1
 
     def _handle_task_bid(self, msg: GossipMessage) -> None:
-        """Processes distributed consensus task bids."""
+        """
+        DistributedUtilityAuction:
+        Single-task auction resolved by highest utility score with tie-breaking.
+        """
         task_id = msg.payload["task_id"]
         bidder_id = msg.payload["bidder_id"]
-        bid_value = float(msg.payload["bid_value"])  # Lower cost or higher utility
+        bid_value = float(msg.payload["bid_value"])
         bid_time = float(msg.timestamp)
 
         if task_id not in self.task_assignments:
@@ -256,62 +293,12 @@ class GossipNode:
             }
         else:
             curr = self.task_assignments[task_id]
-            # Higher utility bid wins
             if bid_value > curr["bid_value"] or (abs(bid_value - curr["bid_value"]) < 1e-4 and bidder_id < curr["winner_id"]):
                 curr["winner_id"] = bidder_id
                 curr["bid_value"] = bid_value
                 curr["timestamp"] = bid_time
 
     def _handle_coverage_map(self, msg: GossipMessage) -> None:
-        """Merges spatial coverage grid matrices (element-wise max)."""
         peer_grid = np.array(msg.payload.get("grid", []), dtype=np.float32)
         if peer_grid.shape == self.coverage_grid.shape:
             self.coverage_grid = np.maximum(self.coverage_grid, peer_grid)
-
-    def update_local_target_observation(self, target_id: int, pos: np.ndarray, vel: np.ndarray, conf: float, sim_time: float) -> GossipMessage:
-        """Called when this drone's onboard camera directly spots a target."""
-        self._handle_target_intel(
-            GossipMessage(
-                msg_id=f"direct_obs_{target_id}_{sim_time}",
-                msg_type=MessageType.TARGET_INTEL,
-                sender_id=self.agent_id,
-                timestamp=sim_time,
-                payload={"target_id": target_id, "position": pos.tolist(), "velocity": vel.tolist(), "confidence": conf},
-            ),
-            sim_time,
-        )
-        return self.create_message(
-            msg_type=MessageType.TARGET_INTEL,
-            payload={"target_id": target_id, "position": pos.tolist(), "velocity": vel.tolist(), "confidence": conf},
-            sim_time=sim_time,
-        )
-
-    def generate_heartbeat(self, pos: np.ndarray, vel: np.ndarray, battery_pct: float, state: str, assigned_target: Optional[int], sim_time: float) -> GossipMessage:
-        return self.create_message(
-            msg_type=MessageType.HEARTBEAT,
-            payload={
-                "position": pos.tolist(),
-                "velocity": vel.tolist(),
-                "battery_pct": battery_pct,
-                "state": state,
-                "assigned_target": assigned_target,
-            },
-            sim_time=sim_time,
-        )
-
-    def submit_task_bid(self, task_id: str, bid_utility: float, sim_time: float) -> GossipMessage:
-        """Submits a local bid for a dynamic surveillance task."""
-        self._handle_task_bid(
-            GossipMessage(
-                msg_id=f"bid_{task_id}_{self.agent_id}",
-                msg_type=MessageType.TASK_BID,
-                sender_id=self.agent_id,
-                timestamp=sim_time,
-                payload={"task_id": task_id, "bidder_id": self.agent_id, "bid_value": bid_utility},
-            )
-        )
-        return self.create_message(
-            msg_type=MessageType.TASK_BID,
-            payload={"task_id": task_id, "bidder_id": self.agent_id, "bid_value": bid_utility},
-            sim_time=sim_time,
-        )
